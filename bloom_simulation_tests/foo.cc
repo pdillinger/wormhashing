@@ -231,6 +231,52 @@ static bool query(uint64_t h) {
 }
 #endif
 
+#ifdef IMPL_WORM64_AND_ROT_POW2
+static void add(uint64_t h) {
+  for (unsigned i = 1;; ++i) {
+    {
+      uint128_t h2 = (uint128_t) h * m_odd;
+      uint64_t a = (uint64_t)(h2 >> 64);
+      table[a >> 6] |= ((uint64_t)1 << (a & 63));
+      if (i >= k) break;
+      h = (uint64_t)h2;
+    }
+    ++i;
+    {
+      unsigned a = h >> bits_64_minus_len;
+      unsigned b = ((h >> bits_64_minus_m) & 63);
+      table[a] |= (uint64_t)1 << b;
+      if (i >= k) break;
+      h = (h << (64 - bits_64_minus_m)) | (h >> bits_64_minus_m);
+    }
+  }
+}
+
+static bool query(uint64_t h) {
+  for (unsigned i = 1;; ++i) {
+    {
+      uint128_t h2 = (uint128_t) h * m_odd;
+      uint64_t a = (uint64_t)(h2 >> 64);
+      if ((table[a >> 6] & ((uint64_t)1 << (a & 63))) == 0) {
+        return false;
+      }
+      if (i >= k) return true;
+      h = (uint64_t)h2;// + a;
+    }
+    ++i;
+    {
+      unsigned a = h >> bits_64_minus_len;
+      unsigned b = ((h >> bits_64_minus_m) & 63);
+      if ((table[a] & ((uint64_t)1 << b)) == 0) {
+        return false;
+      }
+      if (i >= k) return true;
+      h = (h << (64 - bits_64_minus_m)) | (h >> bits_64_minus_m);
+    }
+  }
+}
+#endif
+
 #ifdef IMPL_ROT_POW2
 static void add(uint64_t h) {
   for (unsigned i = 1;; ++i) {
@@ -770,5 +816,13 @@ $ #########################################
 $ (M=$((16 * 8 * 1024 * 1024)); K=12; S=$RANDOM; Q=100000000; for IMPL in foo_gcc_IMPL_WORM{32,64}.out; do ./$IMPL $M $K $S $Q & done; wait)
 ./foo_gcc_IMPL_WORM32.out time: 8.61897 sampled_fp_rate(!BAD!): 0.0454721 expected_fp_rate: 0.00024414 32bit_only_rate: 0.00180507
 ./foo_gcc_IMPL_WORM64.out time: 9.02976 sampled_fp_rate: 0.0002447 expected_fp_rate: 0.00024414
+$ #####################################################
+$ # Intermingling ROT with WORM seems OK for accuracy #
+$ #####################################################
+$ (M=65536; K=20; S=$RANDOM; Q=500000000; for IMPL in foo_intel_IMPL_{ENH_POW2,WORM64,WORM64_AND_ROT_POW2,ROT_POW2_ALT}.out; do ./$IMPL $M $K $S $Q & done; wait)
+./foo_intel_IMPL_ROT_POW2_ALT.out time: 12.7548 sampled_fp_rate(!BAD!): 2.654e-06 expected_fp_rate: 9.51902e-07
+./foo_intel_IMPL_ENH_POW2.out time: 13.2007 sampled_fp_rate: 1.614e-06 expected_fp_rate: 9.51902e-07 2idx_only_rate: 5.28758e-07
+./foo_intel_IMPL_WORM64.out time: 13.7879 sampled_fp_rate: 8.5e-07 expected_fp_rate: 9.51902e-07
+./foo_intel_IMPL_WORM64_AND_ROT_POW2.out time: 13.9317 sampled_fp_rate: 8.96e-07 expected_fp_rate: 9.51902e-07
 $
 */
