@@ -43,6 +43,7 @@ static unsigned max_n;
 
 static unsigned m_odd = 0;
 static unsigned len_odd = 0;
+static unsigned len32_odd = 0;
 static unsigned cache_len_odd = 0;
 
 static unsigned len;
@@ -58,6 +59,19 @@ static unsigned bits_64_minus_m = 0;
 static void clear() {
   std::fill(table, table + len, 0);
 }
+
+#ifdef IMPL_NOOP
+// For subtracting out the cost of generating the pseudorandom values
+static void add(uint64_t h) {
+  table[0] |= h;
+}
+
+static bool query(uint64_t h) {
+  return (table[0] & h) != 0;
+}
+#endif
+
+#include "from_rocksdb.cc"
 
 #ifdef IMPL_WORM64
 static void add(uint64_t h) {
@@ -335,6 +349,7 @@ static inline uint64_t twang_mix64(uint64_t key) noexcept {
 */
 
 #ifdef IMPL_CACHE_WORM64
+#define FP_RATE_CACHE
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t) h * m_odd;
   uint64_t a = (uint64_t)(h2 >> 64);
@@ -368,49 +383,12 @@ static bool query(uint64_t h) {
     }
     if (i >= k) return true;
     h = (uint64_t)h2;// + a;
-  }
-}
-#endif
-
-#ifdef IMPL_CACHE_WORM64_32
-static void add(uint64_t h) {
-  uint128_t h2 = (uint128_t) h * m_odd;
-  uint64_t a = (uint64_t)(h2 >> 64);
-  table[a >> 6] |= ((uint64_t)1 << (a & 63));
-  if (k == 1) return;
-  uint32_t g = (uint32_t)h2;
-  for (unsigned i = 2;; ++i) {
-    uint64_t g2 = (uint64_t)g * 511;
-    uint32_t b = (uint32_t)(g2 >> 32);
-    a ^= b + 1;
-    table[a >> 6] |= ((uint64_t)1 << (a & 63));
-    if (i >= k) break;
-    g = (uint32_t)g2;
-  }
-}
-
-static bool query(uint64_t h) {
-  uint128_t h2 = (uint128_t) h * m_odd;
-  uint64_t a = (uint64_t)(h2 >> 64);
-  if ((table[a >> 6] & ((uint64_t)1 << (a & 63))) == 0) {
-    return false;
-  }
-  if (k == 1) return true;
-  uint32_t g = (uint32_t)h2;
-  for (unsigned i = 2;; ++i) {
-    uint64_t g2 = (uint64_t)g * 511;
-    uint32_t b = (uint32_t)(g2 >> 32);
-    a ^= b + 1;
-    if ((table[a >> 6] & ((uint64_t)1 << (a & 63))) == 0) {
-      return false;
-    }
-    if (i >= k) return true;
-    g = (uint32_t)g2;
   }
 }
 #endif
 
 #ifdef IMPL_CACHE_WORM64_ALT
+#define FP_RATE_CACHE
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * cache_len_odd;
   uint64_t a = h2 >> 64;
@@ -449,6 +427,7 @@ static bool query(uint64_t h) {
 #endif
 
 #ifdef IMPL_CACHE_WORM64_CHEAP
+#define FP_RATE_CACHE
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
@@ -469,6 +448,263 @@ static bool query(uint64_t h) {
       return false;
     }
     h >>= 6;
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_WORM64_CHEAP_FROM32
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h32 = (uint32_t)hh;
+  uint64_t h = (uint64_t)h32 << 32 | h32;
+
+  uint128_t h2 = (uint128_t)h * len_odd;
+  uint64_t a = h2 >> 64;
+  h = (uint64_t)h2;
+  for (unsigned i = 0; i < k; ++i) {
+    table[a ^ i] |= ((uint64_t)1 << (h & 63));
+    h >>= 6;
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h32 = (uint32_t)hh;
+  uint64_t h = (uint64_t)h32 << 32 | h32;
+
+  uint128_t h2 = (uint128_t)h * len_odd;
+  uint64_t a = h2 >> 64;
+  h = (uint64_t)h2;
+  for (unsigned i = 0; i < k; ++i) {
+    if ((table[a ^ i] & ((uint64_t)1 << (h & 63))) == 0) {
+      return false;
+    }
+    h >>= 6;
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_WORM32_CHEAP
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len32_odd;
+  uint32_t a = h2 >> 32;
+  h = (uint32_t)h2;
+  for (unsigned i = 0; i < k; ++i) {
+    reinterpret_cast<uint32_t*>(table)[a ^ i] |= ((uint32_t)1 << (h & 31));
+    h >>= 5;
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len32_odd;
+  uint32_t a = h2 >> 32;
+  h = (uint32_t)h2;
+  for (unsigned i = 0; i < k; ++i) {
+    if ((reinterpret_cast<uint32_t*>(table)[a ^ i] & ((uint32_t)1 << (h & 31))) == 0) {
+      return false;
+    }
+    h >>= 5;
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_WORM32_SEMICHEAP
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len_odd;
+  uint32_t a = h2 >> 32;
+  h = (uint32_t)h2;
+  for (unsigned i = 1;;) {
+    table[a] |= ((uint64_t)1 << (h >> 26));
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    table[a ^ 1] |= ((uint64_t)1 << (h >> 26));
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    table[a ^ 2] |= ((uint64_t)1 << (h >> 26));
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    h2 = (uint64_t)h * 7;
+    a ^= (h2 >> 32);
+    h = (uint32_t)h2;
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len_odd;
+  uint32_t a = h2 >> 32;
+  h = (uint32_t)h2;
+  for (unsigned i = 1;;) {
+    if ((table[a] & ((uint64_t)1 << (h >> 26))) == 0) {
+      return false;
+    }
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    if ((table[a ^ 1] & ((uint64_t)1 << (h >> 26))) == 0) {
+      return false;
+    }
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    if ((table[a ^ 2] & ((uint64_t)1 << (h >> 26))) == 0) {
+      return false;
+    }
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    h2 = (uint64_t)h * 7;
+    a ^= (h2 >> 32);
+    h = (uint32_t)h2;
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_WORM32_SEMICHEAP2
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len_odd;
+  uint32_t a = h2 >> 32;
+  h = (uint32_t)h2;
+  for (unsigned i = 1;;) {
+    table[a] |= ((uint64_t)1 << (h >> 26));
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    table[a ^ 1] |= ((uint64_t)1 << (h >> 26));
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    table[a ^ 2] |= ((uint64_t)1 << (h >> 26));
+    if (i >= k) break;
+    ++i;
+    a ^= (h >> 23) & 7;
+    h *= 1234567891;
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len_odd;
+  uint32_t a = h2 >> 32;
+  h = (uint32_t)h2;
+  for (unsigned i = 1;;) {
+    if ((table[a] & ((uint64_t)1 << (h >> 26))) == 0) {
+      return false;
+    }
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    if ((table[a ^ 1] & ((uint64_t)1 << (h >> 26))) == 0) {
+      return false;
+    }
+    if (i >= k) break;
+    ++i;
+    h = (h >> 26) | (h << 6);
+    if ((table[a ^ 2] & ((uint64_t)1 << (h >> 26))) == 0) {
+      return false;
+    }
+    if (i >= k) break;
+    ++i;
+    a ^= (h >> 23) & 7;
+    h *= 1234567891;
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_WORM32_SMARTCHEAP
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len_odd;
+  uint32_t a = h2 >> 32;
+  uint32_t b;
+  h = (uint32_t)h2;
+  unsigned i = k;
+  while (i > 3) {
+    h2 = (uint64_t)h * (8 * 64 * 64 * 64 - 1);
+    b = h2 >> 32;
+    h = (uint32_t)h2;
+    table[a] |= ((uint64_t)1 << (b & 63));
+    b >>= 6;
+    table[a ^ 1] |= ((uint64_t)1 << (b & 63));
+    b >>= 6;
+    table[a ^ 2] |= ((uint64_t)1 << (b & 63));
+    b >>= 6;
+    a ^= b; // b now in [0,7], staying within same cache line
+    i -= 3;
+  }
+  // invariant i > 0
+  table[a] |= ((uint64_t)1 << (h >> 26));
+  if (i > 1) {
+    h <<= 6;
+    table[a ^ 1] |= ((uint64_t)1 << (h >> 26));
+    if (i > 2) {
+      h <<= 6;
+      table[a ^ 2] |= ((uint64_t)1 << (h >> 26));
+    }
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len_odd;
+  uint32_t a = h2 >> 32;
+  uint32_t b;
+  h = (uint32_t)h2;
+  unsigned i = k;
+  while (i > 3) {
+    h2 = (uint64_t)h * (8 * 64 * 64 * 64 - 1);
+    b = h2 >> 32;
+    h = (uint32_t)h2;
+    if ((table[a] & ((uint64_t)1 << (b & 63))) == 0) {
+      return false;
+    }
+    b >>= 6;
+    if ((table[a ^ 1] & ((uint64_t)1 << (b & 63))) == 0) {
+      return false;
+    }
+    b >>= 6;
+    if ((table[a ^ 2] & ((uint64_t)1 << (b & 63))) == 0) {
+      return false;
+    }
+    b >>= 6;
+    a ^= b; // b now in [0,7], staying within same cache line
+    i -= 3;
+  }
+  // invariant i > 0 and i <= 3
+  if ((table[a] & ((uint64_t)1 << (h >> 26))) == 0) {
+    return false;
+  }
+  if (i > 1) {
+    h <<= 6;
+    if ((table[a ^ 1] & ((uint64_t)1 << (h >> 26))) == 0) {
+      return false;
+    }
+    if (i > 2) {
+      h <<= 6;
+      if ((table[a ^ 2] & ((uint64_t)1 << (h >> 26))) == 0) {
+        return false;
+      }
+    }
   }
   return true;
 }
@@ -652,6 +888,11 @@ static bool query(uint64_t v) {
 }
 #endif
 
+static double bffp(double m, double n, unsigned k) {
+  double p = 1.0 - std::exp(- n * k / m);
+  return std::pow(p, k);
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 5) {
     std::cerr << "Not enough arguments" << std::endl;
@@ -662,7 +903,7 @@ int main(int argc, char *argv[]) {
   len = (((m - 1) | 511) + 1) / 64;
   len_mask = len - 1;
   cache_len = (((m - 1) | 511) + 1) / 512;
-  cache_len_mask = len - 1;
+  cache_len_mask = cache_len - 1;
   table = new int64_t[len];
 
   k = std::atoi(argv[2]);
@@ -679,6 +920,7 @@ int main(int argc, char *argv[]) {
 
   m_odd = m - ~(m & 1);
   len_odd = len - ~(len & 1);
+  len32_odd = len * 2 - 1;
   cache_len_odd = cache_len - ~(cache_len & 1);
 
   if ((m_mask & m) == 0) {
@@ -722,13 +964,17 @@ int main(int argc, char *argv[]) {
 
   std::chrono::steady_clock::time_point time_end = std::chrono::steady_clock::now();
 
-  double p = 1.0 - std::exp(- (double) max_n * k / m);
-  double e_fp = std::pow(p, k);
+  double e_fp = bffp(m, max_n, k);
   double s_fp = (double)total_fps / max_total_queries;
   bool bad = s_fp > e_fp * 2.0;
+  double cache_n = (double)max_n / cache_len;
   std::cout << argv[0] << " time: " << std::chrono::duration_cast<std::chrono::microseconds>(time_end - time_begin).count() / 1000000.0
     << " sampled_fp_rate" << (bad ? "(!BAD!)" : "") << ": " << s_fp
     << " expected_fp_rate: " << e_fp
+#ifdef FP_RATE_CACHE
+    << " cache_line_rate: " << (bffp(512, cache_n + std::sqrt(cache_n), k)
+                                + bffp(512, cache_n - std::sqrt(cache_n), k)) / 2.0
+#endif
 #ifdef FP_RATE_2IDX
     << " 2idx_only_rate: " << ((double)max_n / m / m) // TODO: exp
 #endif
