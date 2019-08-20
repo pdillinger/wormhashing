@@ -426,287 +426,463 @@ static bool query(uint64_t h) {
 }
 #endif
 
-#ifdef IMPL_CACHE_WORM64_CHEAP
+#ifdef IMPL_CACHE_WORM64_FROM32
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h32 = (uint32_t)hh;
+  //uint64_t h = (uint64_t)h32 << 32 | h32;
+  uint64_t h = (uint64_t)h32 * 9123456789123456789ULL;
+
+  uint128_t h2 = (uint128_t) h * m_odd;
+  uint64_t a = (uint64_t)(h2 >> 64);
+  table[a >> 6] |= ((uint64_t)1 << (a & 63));
+  if (k == 1) return;
+  h = (uint64_t)h2;// + a;
+  for (unsigned i = 2;; ++i) {
+    h2 = (uint128_t) h * 511;
+    uint64_t b = (uint64_t)(h2 >> 64);
+    a ^= b + 1;
+    table[a >> 6] |= ((uint64_t)1 << (a & 63));
+    if (i >= k) break;
+    h = (uint64_t)h2;// + a;
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h32 = (uint32_t)hh;
+  //uint64_t h = (uint64_t)h32 << 32 | h32;
+  uint64_t h = (uint64_t)h32 * 9123456789123456789ULL;
+
+  uint128_t h2 = (uint128_t) h * m_odd;
+  uint64_t a = (uint64_t)(h2 >> 64);
+  if ((table[a >> 6] & ((uint64_t)1 << (a & 63))) == 0) {
+    return false;
+  }
+  if (k == 1) return true;
+  h = (uint64_t)h2;// + a;
+  for (unsigned i = 2;; ++i) {
+    h2 = (uint128_t) h * 511;
+    uint64_t b = (uint64_t)(h2 >> 64);
+    a ^= b + 1;
+    if ((table[a >> 6] & ((uint64_t)1 << (a & 63))) == 0) {
+      return false;
+    }
+    if (i >= k) return true;
+    h = (uint64_t)h2;// + a;
+  }
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL64_BLOCK
 #define FP_RATE_CACHE
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
-  h = (uint64_t)h2;
-  for (unsigned i = 0; i < k; ++i) {
-    //std::cerr << "At i=" << i << " setting bit " << (h&63) << " at index " << (a ^ i) << std::endl;
-    table[a ^ i] |= ((uint64_t)1 << (h & 63));
-    h >>= 6;
+  if (k <= 1) {
+    table[a] |= ((uint64_t)1 << (h & 63));
+    return;
+  }
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 5; ++j) {
+      uint64_t mask = ((uint64_t)1 << (h & 63))
+                    | ((uint64_t)1 << ((h >> 6) & 63));
+      ++i;
+      if (i >= k / 2) {
+        if (k & 1) {
+          mask |= ((uint64_t)1 << ((h >> 12) & 63));
+        }
+        table[a ^ i] |= mask;
+        return;
+      }
+      table[a ^ i] |= mask;
+      h = (h >> 12) | (h << 52);
+    }
   }
 }
 
 static bool query(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
-  h = (uint64_t)h2;
-  for (unsigned i = 0; i < k; ++i) {
-    if ((table[a ^ i] & ((uint64_t)1 << (h & 63))) == 0) {
-      return false;
-    }
-    h >>= 6;
+  if (k <= 1) {
+    return (table[a] & ((uint64_t)1 << (h & 63))) != 0;
   }
-  return true;
-}
-#endif
-
-#ifdef IMPL_CACHE_WORM64_CHEAP_FROM32
-#define FP_RATE_CACHE
-#define FP_RATE_32BIT 1
-static void add(uint64_t hh) {
-  uint32_t h32 = (uint32_t)hh;
-  uint64_t h = (uint64_t)h32 << 32 | h32;
-
-  uint128_t h2 = (uint128_t)h * len_odd;
-  uint64_t a = h2 >> 64;
-  h = (uint64_t)h2;
-  for (unsigned i = 0; i < k; ++i) {
-    table[a ^ i] |= ((uint64_t)1 << (h & 63));
-    h >>= 6;
-  }
-}
-
-static bool query(uint64_t hh) {
-  uint32_t h32 = (uint32_t)hh;
-  uint64_t h = (uint64_t)h32 << 32 | h32;
-
-  uint128_t h2 = (uint128_t)h * len_odd;
-  uint64_t a = h2 >> 64;
-  h = (uint64_t)h2;
-  for (unsigned i = 0; i < k; ++i) {
-    if ((table[a ^ i] & ((uint64_t)1 << (h & 63))) == 0) {
-      return false;
-    }
-    h >>= 6;
-  }
-  return true;
-}
-#endif
-
-#ifdef IMPL_CACHE_WORM32_CHEAP
-#define FP_RATE_CACHE
-#define FP_RATE_32BIT 1
-static void add(uint64_t hh) {
-  uint32_t h = (uint32_t)hh;
-  uint64_t h2 = (uint64_t)h * len32_odd;
-  uint32_t a = h2 >> 32;
-  h = (uint32_t)h2;
-  for (unsigned i = 0; i < k; ++i) {
-    reinterpret_cast<uint32_t*>(table)[a ^ i] |= ((uint32_t)1 << (h & 31));
-    h >>= 5;
-  }
-}
-
-static bool query(uint64_t hh) {
-  uint32_t h = (uint32_t)hh;
-  uint64_t h2 = (uint64_t)h * len32_odd;
-  uint32_t a = h2 >> 32;
-  h = (uint32_t)h2;
-  for (unsigned i = 0; i < k; ++i) {
-    if ((reinterpret_cast<uint32_t*>(table)[a ^ i] & ((uint32_t)1 << (h & 31))) == 0) {
-      return false;
-    }
-    h >>= 5;
-  }
-  return true;
-}
-#endif
-
-#ifdef IMPL_CACHE_WORM32_SEMICHEAP
-#define FP_RATE_CACHE
-#define FP_RATE_32BIT 1
-static void add(uint64_t hh) {
-  uint32_t h = (uint32_t)hh;
-  uint64_t h2 = (uint64_t)h * len_odd;
-  uint32_t a = h2 >> 32;
-  h = (uint32_t)h2;
-  for (unsigned i = 1;;) {
-    table[a] |= ((uint64_t)1 << (h >> 26));
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    table[a ^ 1] |= ((uint64_t)1 << (h >> 26));
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    table[a ^ 2] |= ((uint64_t)1 << (h >> 26));
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    h2 = (uint64_t)h * 7;
-    a ^= (h2 >> 32);
-    h = (uint32_t)h2;
-  }
-}
-
-static bool query(uint64_t hh) {
-  uint32_t h = (uint32_t)hh;
-  uint64_t h2 = (uint64_t)h * len_odd;
-  uint32_t a = h2 >> 32;
-  h = (uint32_t)h2;
-  for (unsigned i = 1;;) {
-    if ((table[a] & ((uint64_t)1 << (h >> 26))) == 0) {
-      return false;
-    }
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    if ((table[a ^ 1] & ((uint64_t)1 << (h >> 26))) == 0) {
-      return false;
-    }
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    if ((table[a ^ 2] & ((uint64_t)1 << (h >> 26))) == 0) {
-      return false;
-    }
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    h2 = (uint64_t)h * 7;
-    a ^= (h2 >> 32);
-    h = (uint32_t)h2;
-  }
-  return true;
-}
-#endif
-
-#ifdef IMPL_CACHE_WORM32_SEMICHEAP2
-#define FP_RATE_CACHE
-#define FP_RATE_32BIT 1
-static void add(uint64_t hh) {
-  uint32_t h = (uint32_t)hh;
-  uint64_t h2 = (uint64_t)h * len_odd;
-  uint32_t a = h2 >> 32;
-  h = (uint32_t)h2;
-  for (unsigned i = 1;;) {
-    table[a] |= ((uint64_t)1 << (h >> 26));
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    table[a ^ 1] |= ((uint64_t)1 << (h >> 26));
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    table[a ^ 2] |= ((uint64_t)1 << (h >> 26));
-    if (i >= k) break;
-    ++i;
-    a ^= (h >> 23) & 7;
-    h *= 1234567891;
-  }
-}
-
-static bool query(uint64_t hh) {
-  uint32_t h = (uint32_t)hh;
-  uint64_t h2 = (uint64_t)h * len_odd;
-  uint32_t a = h2 >> 32;
-  h = (uint32_t)h2;
-  for (unsigned i = 1;;) {
-    if ((table[a] & ((uint64_t)1 << (h >> 26))) == 0) {
-      return false;
-    }
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    if ((table[a ^ 1] & ((uint64_t)1 << (h >> 26))) == 0) {
-      return false;
-    }
-    if (i >= k) break;
-    ++i;
-    h = (h >> 26) | (h << 6);
-    if ((table[a ^ 2] & ((uint64_t)1 << (h >> 26))) == 0) {
-      return false;
-    }
-    if (i >= k) break;
-    ++i;
-    a ^= (h >> 23) & 7;
-    h *= 1234567891;
-  }
-  return true;
-}
-#endif
-
-#ifdef IMPL_CACHE_WORM32_SMARTCHEAP
-#define FP_RATE_CACHE
-#define FP_RATE_32BIT 1
-static void add(uint64_t hh) {
-  uint32_t h = (uint32_t)hh;
-  uint64_t h2 = (uint64_t)h * len_odd;
-  uint32_t a = h2 >> 32;
-  uint32_t b;
-  h = (uint32_t)h2;
-  unsigned i = k;
-  while (i > 3) {
-    h2 = (uint64_t)h * (8 * 64 * 64 * 64 - 1);
-    b = h2 >> 32;
-    h = (uint32_t)h2;
-    table[a] |= ((uint64_t)1 << (b & 63));
-    b >>= 6;
-    table[a ^ 1] |= ((uint64_t)1 << (b & 63));
-    b >>= 6;
-    table[a ^ 2] |= ((uint64_t)1 << (b & 63));
-    b >>= 6;
-    a ^= b; // b now in [0,7], staying within same cache line
-    i -= 3;
-  }
-  // invariant i > 0
-  table[a] |= ((uint64_t)1 << (h >> 26));
-  if (i > 1) {
-    h <<= 6;
-    table[a ^ 1] |= ((uint64_t)1 << (h >> 26));
-    if (i > 2) {
-      h <<= 6;
-      table[a ^ 2] |= ((uint64_t)1 << (h >> 26));
-    }
-  }
-}
-
-static bool query(uint64_t hh) {
-  uint32_t h = (uint32_t)hh;
-  uint64_t h2 = (uint64_t)h * len_odd;
-  uint32_t a = h2 >> 32;
-  uint32_t b;
-  h = (uint32_t)h2;
-  unsigned i = k;
-  while (i > 3) {
-    h2 = (uint64_t)h * (8 * 64 * 64 * 64 - 1);
-    b = h2 >> 32;
-    h = (uint32_t)h2;
-    if ((table[a] & ((uint64_t)1 << (b & 63))) == 0) {
-      return false;
-    }
-    b >>= 6;
-    if ((table[a ^ 1] & ((uint64_t)1 << (b & 63))) == 0) {
-      return false;
-    }
-    b >>= 6;
-    if ((table[a ^ 2] & ((uint64_t)1 << (b & 63))) == 0) {
-      return false;
-    }
-    b >>= 6;
-    a ^= b; // b now in [0,7], staying within same cache line
-    i -= 3;
-  }
-  // invariant i > 0 and i <= 3
-  if ((table[a] & ((uint64_t)1 << (h >> 26))) == 0) {
-    return false;
-  }
-  if (i > 1) {
-    h <<= 6;
-    if ((table[a ^ 1] & ((uint64_t)1 << (h >> 26))) == 0) {
-      return false;
-    }
-    if (i > 2) {
-      h <<= 6;
-      if ((table[a ^ 2] & ((uint64_t)1 << (h >> 26))) == 0) {
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 5; ++j) {
+      uint64_t mask = ((uint64_t)1 << (h & 63))
+                    | ((uint64_t)1 << ((h >> 6) & 63));
+      ++i;
+      if (i >= k / 2) {
+        if (k & 1) {
+          mask |= ((uint64_t)1 << ((h >> 12) & 63));
+        }
+        return (table[a ^ i] & mask) == mask;
+      }
+      if ((table[a ^ i] & mask) != mask) {
         return false;
       }
+      h = (h >> 12) | (h << 52);
     }
   }
   return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL64_BLOCK_ALT
+#define FP_RATE_CACHE
+static void add(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * len_odd;
+  uint64_t a = h2 >> 64;
+  if (k <= 1) {
+    table[a] |= ((uint64_t)1 << (h & 63));
+    return;
+  }
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 5; ++j) {
+      uint64_t mask = ((uint64_t)1 << (h & 63))
+                    | ((uint64_t)1 << ((h >> 6) & 63));
+      ++i;
+      if (i >= k / 2) {
+        // if (k & 1)
+        mask |= ((uint64_t)(k & 1) << ((h >> 12) & 63));
+        table[a ^ i] |= mask;
+        return;
+      }
+      table[a ^ i] |= mask;
+      h = (h >> 12) | (h << 52);
+    }
+  }
+}
+
+static bool query(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * len_odd;
+  uint64_t a = h2 >> 64;
+  if (k <= 1) {
+    return (table[a] & ((uint64_t)1 << (h & 63))) != 0;
+  }
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 5; ++j) {
+      uint64_t mask = ((uint64_t)1 << (h & 63))
+                    | ((uint64_t)1 << ((h >> 6) & 63));
+      ++i;
+      if (i >= k / 2) {
+        // if (k & 1)
+        mask |= ((uint64_t)(k & 1) << ((h >> 12) & 63));
+        return (table[a ^ i] & mask) == mask;
+      }
+      if ((table[a ^ i] & mask) != mask) {
+        return false;
+      }
+      h = (h >> 12) | (h << 52);
+    }
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL64_BLOCK2
+#define FP_RATE_CACHE
+static void add(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * m_odd;
+  uint64_t a = h2 >> 64;
+  uint64_t mask = ((uint64_t)(k & 1) << (a & 63));
+  a >>= 6;
+  if (k <= 1) {
+    table[a] |= mask;
+    return;
+  }
+  h *= 0x9e3779b97f4a7c13ULL;
+  mask |= ((uint64_t)1 << (h & 63))
+        | ((uint64_t)1 << ((h >> 6) & 63));
+  table[a] |= mask;
+  if (k <= 3) {
+    return;
+  }
+  mask = ((uint64_t)1 << ((h >> 12) & 63))
+       | ((uint64_t)1 << ((h >> 18) & 63));
+  table[a ^ 1] |= mask;
+  if (k <= 5) {
+    return;
+  }
+  mask = ((uint64_t)1 << ((h >> 24) & 63))
+       | ((uint64_t)1 << ((h >> 30) & 63));
+  table[a ^ 2] |= mask;
+  if (k <= 7) {
+    return;
+  }
+  mask = ((uint64_t)1 << ((h >> 36) & 63))
+       | ((uint64_t)1 << ((h >> 42) & 63));
+  table[a ^ 3] |= mask;
+  if (k <= 9) {
+    return;
+  }
+  mask = ((uint64_t)1 << ((h >> 48) & 63))
+       | ((uint64_t)1 << ((h >> 54) & 63));
+  table[a ^ 4] |= mask;
+  if (k <= 11) {
+    return;
+  }
+  h = (h >> 60) | (h << 4);
+  for (unsigned i = 5;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 5; ++j) {
+      mask = ((uint64_t)1 << (h & 63))
+           | ((uint64_t)1 << ((h >> 6) & 63));
+      table[a ^ i] |= mask;
+      if (k <= i * 2 + 3) {
+        return;
+      }
+      ++i;
+      h = (h >> 12) | (h << 52);
+    }
+  }
+}
+
+static bool query(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * m_odd;
+  uint64_t a = h2 >> 64;
+  uint64_t mask = ((uint64_t)(k & 1) << (a & 63));
+  a >>= 6;
+  if (k <= 1) {
+    return (table[a] & mask) == mask;
+  }
+  h *= 0x9e3779b97f4a7c13ULL;
+  mask |= ((uint64_t)1 << (h & 63))
+        | ((uint64_t)1 << ((h >> 6) & 63));
+  if (k <= 3) {
+    return (table[a] & mask) == mask;
+  }
+  if ((table[a] & mask) != mask) {
+    return false;
+  }
+  mask = ((uint64_t)1 << ((h >> 12) & 63))
+       | ((uint64_t)1 << ((h >> 18) & 63));
+  if (k <= 5) {
+    return (table[a ^ 1] & mask) == mask;
+  }
+  if ((table[a ^ 1] & mask) != mask) {
+    return false;
+  }
+  mask = ((uint64_t)1 << ((h >> 24) & 63))
+       | ((uint64_t)1 << ((h >> 30) & 63));
+  if (k <= 7) {
+    return (table[a ^ 2] & mask) == mask;
+  }
+  if ((table[a ^ 2] & mask) != mask) {
+    return false;
+  }
+  mask = ((uint64_t)1 << ((h >> 36) & 63))
+       | ((uint64_t)1 << ((h >> 42) & 63));
+  if (k <= 9) {
+    return (table[a ^ 3] & mask) == mask;
+  }
+  if ((table[a ^ 3] & mask) != mask) {
+    return false;
+  }
+  mask = ((uint64_t)1 << ((h >> 48) & 63))
+       | ((uint64_t)1 << ((h >> 54) & 63));
+  if (k <= 11) {
+    return (table[a ^ 4] & mask) == mask;
+  }
+  if ((table[a ^ 4] & mask) != mask) {
+    return false;
+  }
+  h = (h >> 60) | (h << 4);
+  for (unsigned i = 5;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 5; ++j) {
+      mask = ((uint64_t)1 << (h & 63))
+           | ((uint64_t)1 << ((h >> 6) & 63));
+      if (k <= i * 2 + 3) {
+        return (table[a ^ i] & mask) == mask;
+      }
+      if ((table[a ^ i] & mask) != mask) {
+        return false;
+      }
+      ++i;
+      h = (h >> 12) | (h << 52);
+    }
+  }
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL64_CHEAP
+#define FP_RATE_CACHE
+static void add(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * len32_odd;
+  uint64_t a = h2 >> 64;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 12; ++j) {
+      reinterpret_cast<uint32_t*>(table)[a ^ i] |= ((uint32_t)1 << (h & 31));
+      ++i;
+      if (i >= k) { return; }
+      h = (h >> 5) | (h << 59);
+    }
+  }
+}
+
+static bool query(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * len32_odd;
+  uint64_t a = h2 >> 64;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 12; ++j) {
+      if ((reinterpret_cast<uint32_t*>(table)[a ^ i] & ((uint32_t)1 << (h & 31))) == 0) {
+        return false;
+      }
+      ++i;
+      if (i >= k) { return true; }
+      h = (h >> 5) | (h << 59);
+    }
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL64_CHEAP2
+#define FP_RATE_CACHE
+static void add(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * len32_odd;
+  uint64_t a = h2 >> 64;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    h = (h >> 10) | (h << 54);
+    for (int j = 0; j < 10; ++j) {
+      reinterpret_cast<uint32_t*>(table)[a ^ i] |= ((uint32_t)1 << (h & 31));
+      ++i;
+      if (i >= k) { return; }
+      h = (h >> 5) | (h << 59);
+    }
+  }
+}
+
+static bool query(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * len32_odd;
+  uint64_t a = h2 >> 64;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    h = (h >> 10) | (h << 54);
+    for (int j = 0; j < 10; ++j) {
+      if ((reinterpret_cast<uint32_t*>(table)[a ^ i] & ((uint32_t)1 << (h & 31))) == 0) {
+        return false;
+      }
+      ++i;
+      if (i >= k) { return true; }
+      h = (h >> 5) | (h << 59);
+    }
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL64_CHEAP_FROM32
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h32 = (uint32_t)hh;
+  //uint64_t h = (uint64_t)h32 << 32 | h32;
+  uint64_t h = (uint64_t)h32 * 9123456789123456789ULL;
+
+  uint128_t h2 = (uint128_t)h * len32_odd;
+  uint64_t a = h2 >> 64;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 12; ++j) {
+      reinterpret_cast<uint32_t*>(table)[a ^ i] |= ((uint32_t)1 << (h & 31));
+      ++i;
+      if (i >= k) { return; }
+      h = (h >> 5) | (h << 59);
+    }
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h32 = (uint32_t)hh;
+  //uint64_t h = (uint64_t)h32 << 32 | h32;
+  uint64_t h = (uint64_t)h32 * 9123456789123456789ULL;
+
+  uint128_t h2 = (uint128_t)h * len32_odd;
+  uint64_t a = h2 >> 64;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 12; ++j) {
+      if ((reinterpret_cast<uint32_t*>(table)[a ^ i] & ((uint32_t)1 << (h & 31))) == 0) {
+        return false;
+      }
+      ++i;
+      if (i >= k) { return true; }
+      h = (h >> 5) | (h << 59);
+    }
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_BLOCK64
+#define FP_RATE_CACHE
+static void add(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * len_odd;
+  uint64_t a = h2 >> 64;
+  h = (uint64_t)h2;
+  uint64_t mask = 0;
+  for (unsigned i = 0; i < k; ++i) {
+    mask |= ((uint64_t)1 << (h & 63));
+    h = (h >> 6) | (h << 58);
+  }
+  table[a] |= mask;
+}
+
+static bool query(uint64_t h) {
+  uint128_t h2 = (uint128_t)h * len_odd;
+  uint64_t a = h2 >> 64;
+  h = (uint64_t)h2;
+  uint64_t mask = 0;
+  for (unsigned i = 0; i < k; ++i) {
+    mask |= ((uint64_t)1 << (h & 63));
+    h = (h >> 6) | (h << 58);
+  }
+  return (table[a] & mask) == mask;
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL32_CHEAP
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h = (uint32_t)hh; // take only 32 bits even though my test rig provides 64
+  uint64_t h2 = (uint64_t)h * len32_odd;
+  uint32_t a = h2 >> 32;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b9;
+    for (int j = 0; j < 6; ++j) {
+      reinterpret_cast<uint32_t*>(table)[a ^ i] |= ((uint32_t)1 << (h & 31));
+      ++i;
+      if (i >= k) { return; }
+      h = (h >> 5) | (h << 27);
+    }
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len32_odd;
+  uint32_t a = h2 >> 32;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b9;
+    for (int j = 0; j < 6; ++j) {
+      if ((reinterpret_cast<uint32_t*>(table)[a ^ i] & ((uint32_t)1 << (h & 31))) == 0) {
+        return false;
+      }
+      ++i;
+      if (i >= k) { return true; }
+      h = (h >> 5) | (h << 27);
+    }
+  }
 }
 #endif
 
@@ -976,10 +1152,10 @@ int main(int argc, char *argv[]) {
                                 + bffp(512, cache_n - std::sqrt(cache_n), k)) / 2.0
 #endif
 #ifdef FP_RATE_2IDX
-    << " 2idx_only_rate: " << ((double)max_n / m / m) // TODO: exp
+    << " 2idx_only_addl: " << ((double)max_n / m / m) // TODO: exp
 #endif
 #ifdef FP_RATE_32BIT
-    << " 32bit_only_rate: " << ((double)max_n * std::pow(2, -32)) // TODO: exp
+    << " 32bit_only_addl: " << ((double)max_n * std::pow(2, -32)) // TODO: exp
 #endif
     << std::endl;
   return 0;
@@ -1070,5 +1246,25 @@ $ (M=65536; K=20; S=$RANDOM; Q=500000000; for IMPL in foo_intel_IMPL_{ENH_POW2,W
 ./foo_intel_IMPL_ENH_POW2.out time: 13.2007 sampled_fp_rate: 1.614e-06 expected_fp_rate: 9.51902e-07 2idx_only_rate: 5.28758e-07
 ./foo_intel_IMPL_WORM64.out time: 13.7879 sampled_fp_rate: 8.5e-07 expected_fp_rate: 9.51902e-07
 ./foo_intel_IMPL_WORM64_AND_ROT_POW2.out time: 13.9317 sampled_fp_rate: 8.96e-07 expected_fp_rate: 9.51902e-07
+$ ####################################################
+$ # Testing optimized cache-friendly implementations #
+$ ####################################################
+$ (M=$((12345678)); K=8; S=$RANDOM; Q=500000000; for IMPL in foo_gcc_IMPL_{NOOP,WORM64,CACHE_*}.out; do ./$IMPL $M $K $S $Q & done; wait)
+./foo_gcc_IMPL_NOOP.out time: 4.43283 sampled_fp_rate(!BAD!): 1 expected_fp_rate: 0.00390624
+./foo_gcc_IMPL_CACHE_BLOCK64.out time: 9.9762 sampled_fp_rate(!BAD!): 0.0146745 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_gcc_IMPL_CACHE_MUL64_BLOCK_ALT.out time: 11.8424 sampled_fp_rate: 0.00520687 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_gcc_IMPL_CACHE_MUL64_BLOCK.out time: 12.2904 sampled_fp_rate: 0.00520687 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_gcc_IMPL_CACHE_MUL64_BLOCK2.out time: 12.4896 sampled_fp_rate: 0.00635501 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_gcc_IMPL_CACHE_MUL64_CHEAP.out time: 16.446 sampled_fp_rate: 0.00649212 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_gcc_IMPL_CACHE_MUL32_CHEAP.out time: 16.5504 sampled_fp_rate: 0.00688178 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_gcc_IMPL_CACHE_MUL64_CHEAP2.out time: 16.9667 sampled_fp_rate: 0.00651935 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_gcc_IMPL_CACHE_MUL64_CHEAP_FROM32.out time: 17.3975 sampled_fp_rate: 0.00675398 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_gcc_IMPL_CACHE_ROCKSDB_DYNAMIC_FASTRANGE2.out time: 17.5808 sampled_fp_rate: 0.00658098 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_gcc_IMPL_CACHE_WORM64.out time: 17.6535 sampled_fp_rate: 0.00500722 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_gcc_IMPL_CACHE_ROCKSDB_DYNAMIC_FASTRANGE.out time: 18.3648 sampled_fp_rate: 0.00540961 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_gcc_IMPL_CACHE_WORM64_FROM32.out time: 18.3706 sampled_fp_rate: 0.00527092 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_gcc_IMPL_CACHE_WORM64_ALT.out time: 19.1099 sampled_fp_rate: 0.00509363 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_gcc_IMPL_WORM64.out time: 19.5882 sampled_fp_rate: 0.00390409 expected_fp_rate: 0.00390624
+./foo_gcc_IMPL_CACHE_ROCKSDB_DYNAMIC.out time: 21.8537 sampled_fp_rate: 0.00529048 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
 $
 */
