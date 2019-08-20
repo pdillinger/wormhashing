@@ -9,13 +9,21 @@ ICC=icc
 [ "$IMPLS" ] || IMPLS="`grep '[#]ifdef' foo.cc from_rocksdb.cc | grep -o 'IMPL_[^ ]*'`"
 
 for IMPL in $IMPLS; do
-  CMD="$GPP -D$IMPL -std=c++11 -march=native -mtune=native -O9 -o foo_gcc_${IMPL}.out foo.cc"
-  echo "$CMD"
-  $CMD
-  CMD="$CLANGPP -D$IMPL -std=c++11 -march=native -mtune=native -Ofast -o foo_clang_${IMPL}.out foo.cc"
-  echo "$CMD"
-  $CMD
-  CMD="$ICC -D$IMPL -std=c++11 -march=native -mtune=native -Ofast -o foo_intel_${IMPL}.out foo.cc"
-  echo "$CMD"
-  $CMD
+  for FIXED_K in any 8; do
+    if [ "$FIXED_K" == "any" ]; then
+      KOPT=""
+    else
+      KOPT="-DFIXED_K=$FIXED_K"
+    fi
+    CMD="$GPP -D$IMPL $KOPT -std=c++11 -march=native -mtune=native -O9 -o foo_gcc_${IMPL}_${FIXED_K}.out foo.cc"
+    echo "$CMD"
+    $CMD &
+    CMD="$CLANGPP -D$IMPL $KOPT -std=c++11 -march=native -mtune=native -Ofast -o foo_clang_${IMPL}_${FIXED_K}.out foo.cc"
+    echo "$CMD"
+    $CMD &
+    CMD="$ICC -D$IMPL $KOPT -std=c++11 -march=native -mtune=native -Ofast -o foo_intel_${IMPL}_${FIXED_K}.out foo.cc"
+    echo "$CMD"
+    $CMD &
+  done
+  wait
 done

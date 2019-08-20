@@ -36,9 +36,14 @@ static uint64_t hash(uint64_t v, uint64_t seed = 0) {
   return XXH64(&v, sizeof(v), seed);
 }
 
+#ifdef FIXED_K
+static const unsigned k = FIXED_K;
+#else
+static unsigned k;
+#endif
+
 static int64_t *table;
 static unsigned m;
-static unsigned k;
 static unsigned max_n;
 
 static unsigned m_odd = 0;
@@ -1082,7 +1087,14 @@ int main(int argc, char *argv[]) {
   cache_len_mask = cache_len - 1;
   table = new int64_t[len];
 
+#ifdef FIXED_K
+  if (k != std::atoi(argv[2])) {
+    std::cerr << "Compiled for fixed k=" << k << " so must specify that" << std::endl;
+    return 2;
+  }
+#else
   k = std::atoi(argv[2]);
+#endif
 
   max_n = (unsigned)(0.69314718 * m / k);
 
@@ -1266,5 +1278,27 @@ $ (M=$((12345678)); K=8; S=$RANDOM; Q=500000000; for IMPL in foo_gcc_IMPL_{NOOP,
 ./foo_gcc_IMPL_CACHE_WORM64_ALT.out time: 19.1099 sampled_fp_rate: 0.00509363 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
 ./foo_gcc_IMPL_WORM64.out time: 19.5882 sampled_fp_rate: 0.00390409 expected_fp_rate: 0.00390624
 ./foo_gcc_IMPL_CACHE_ROCKSDB_DYNAMIC.out time: 21.8537 sampled_fp_rate: 0.00529048 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+$ ################################################
+$ # Testing compiled with fixed k vs. variable k #
+$ ################################################
+$ (M=$((12345678)); K=8; S=$RANDOM; Q=500000000; for IMPL in foo_clang_IMPL_{NOOP,CACHE_MUL*,CACHE_BLOCK*}_{8,any}.out; do ./$IMPL $M $K $S $Q & done; wait)
+./foo_clang_IMPL_NOOP_8.out time: 5.081 sampled_fp_rate(!BAD!): 1 expected_fp_rate: 0.00390624
+./foo_clang_IMPL_NOOP_any.out time: 5.10355 sampled_fp_rate(!BAD!): 1 expected_fp_rate: 0.00390624
+./foo_clang_IMPL_CACHE_BLOCK64_8.out time: 9.28827 sampled_fp_rate(!BAD!): 0.0146606 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_BLOCK64_any.out time: 10.6522 sampled_fp_rate(!BAD!): 0.0146606 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_BLOCK_ALT_8.out time: 11.2642 sampled_fp_rate: 0.00522023 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_BLOCK_8.out time: 11.5023 sampled_fp_rate: 0.00522023 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_BLOCK2_8.out time: 11.6621 sampled_fp_rate: 0.00635194 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_BLOCK_ALT_any.out time: 12.4865 sampled_fp_rate: 0.00522023 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_BLOCK_any.out time: 12.7215 sampled_fp_rate: 0.00522023 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_BLOCK2_any.out time: 13.4629 sampled_fp_rate: 0.00635194 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL32_CHEAP_8.out time: 15.863 sampled_fp_rate: 0.00682816 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_clang_IMPL_CACHE_MUL64_CHEAP_8.out time: 16.258 sampled_fp_rate: 0.00652367 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_CHEAP2_8.out time: 16.4654 sampled_fp_rate: 0.00651982 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_CHEAP_any.out time: 16.6106 sampled_fp_rate: 0.00652367 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
+./foo_clang_IMPL_CACHE_MUL64_CHEAP_FROM32_8.out time: 16.7128 sampled_fp_rate: 0.00676554 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_clang_IMPL_CACHE_MUL32_CHEAP_any.out time: 16.8505 sampled_fp_rate: 0.00682816 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_clang_IMPL_CACHE_MUL64_CHEAP_FROM32_any.out time: 17.047 sampled_fp_rate: 0.00676554 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214 32bit_only_addl: 0.000249052
+./foo_clang_IMPL_CACHE_MUL64_CHEAP2_any.out time: 17.2786 sampled_fp_rate: 0.00651982 expected_fp_rate: 0.00390624 cache_line_rate: 0.00492214
 $
 */
