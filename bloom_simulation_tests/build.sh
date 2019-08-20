@@ -9,7 +9,7 @@ ICC=icc
 [ "$IMPLS" ] || IMPLS="`grep '[#]ifdef' foo.cc from_rocksdb.cc | grep -o 'IMPL_[^ ]*'`"
 
 for IMPL in $IMPLS; do
-  for FIXED_K in any 8; do
+  for FIXED_K in any 8 3; do
     if [ "$FIXED_K" == "any" ]; then
       KOPT=""
     else

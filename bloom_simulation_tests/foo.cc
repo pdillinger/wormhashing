@@ -398,6 +398,7 @@ static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * cache_len_odd;
   uint64_t a = h2 >> 64;
   a <<= 3;
+  __builtin_prefetch(table + a, 1, 3);
   h = (uint64_t)h2;
   //uint64_t prev = 0;
   for (unsigned i = 1;; ++i) {
@@ -415,6 +416,7 @@ static bool query(uint64_t h) {
   uint128_t h2 = (uint128_t)h * cache_len_odd;
   uint64_t a = h2 >> 64;
   a <<= 3;
+  __builtin_prefetch(table + a, 0, 3);
   h = (uint64_t)h2;
   //uint64_t prev = 0;
   for (unsigned i = 1;; ++i) {
@@ -484,6 +486,7 @@ static bool query(uint64_t hh) {
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 1, 3);
   if (k <= 1) {
     table[a] |= ((uint64_t)1 << (h & 63));
     return;
@@ -510,6 +513,7 @@ static void add(uint64_t h) {
 static bool query(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 0, 3);
   if (k <= 1) {
     return (table[a] & ((uint64_t)1 << (h & 63))) != 0;
   }
@@ -535,11 +539,73 @@ static bool query(uint64_t h) {
 }
 #endif
 
+#ifdef IMPL_CACHE_MUL32_BLOCK64
+#define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
+static void add(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len_odd;
+  uint32_t a = h2 >> 32;
+  __builtin_prefetch(table + a, 1, 3);
+  if (k <= 1) {
+    table[a] |= ((uint64_t)1 << (h & 63));
+    return;
+  }
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b9U;
+    for (int j = 0; j < 3; ++j) {
+      uint64_t mask = ((uint64_t)1 << (h & 63))
+                    | ((uint64_t)1 << ((h >> 6) & 63));
+      ++i;
+      if (i >= k / 2) {
+        if (k & 1) {
+          mask |= ((uint64_t)1 << ((h >> 12) & 63));
+        }
+        table[a ^ i] |= mask;
+        return;
+      }
+      table[a ^ i] |= mask;
+      h = (h >> 11) | (h << 21);
+    }
+  }
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  uint64_t h2 = (uint64_t)h * len_odd;
+  uint32_t a = h2 >> 32;
+  __builtin_prefetch(table + a, 0, 3);
+  if (k <= 1) {
+    return (table[a] & ((uint64_t)1 << (h & 63))) != 0;
+  }
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b9U;
+    for (int j = 0; j < 3; ++j) {
+      uint64_t mask = ((uint64_t)1 << (h & 63))
+                    | ((uint64_t)1 << ((h >> 6) & 63));
+      ++i;
+      if (i >= k / 2) {
+        if (k & 1) {
+          mask |= ((uint64_t)1 << ((h >> 12) & 63));
+        }
+        return (table[a ^ i] & mask) == mask;
+      }
+      if ((table[a ^ i] & mask) != mask) {
+        return false;
+      }
+      h = (h >> 11) | (h << 21);
+    }
+  }
+  return true;
+}
+#endif
+
 #ifdef IMPL_CACHE_MUL64_BLOCK_ALT
 #define FP_RATE_CACHE
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 1, 3);
   if (k <= 1) {
     table[a] |= ((uint64_t)1 << (h & 63));
     return;
@@ -565,6 +631,7 @@ static void add(uint64_t h) {
 static bool query(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 0, 3);
   if (k <= 1) {
     return (table[a] & ((uint64_t)1 << (h & 63))) != 0;
   }
@@ -594,6 +661,7 @@ static bool query(uint64_t h) {
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * m_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + (a >> 6), 1, 3);
   uint64_t mask = ((uint64_t)(k & 1) << (a & 63));
   a >>= 6;
   if (k <= 1) {
@@ -650,6 +718,7 @@ static void add(uint64_t h) {
 static bool query(uint64_t h) {
   uint128_t h2 = (uint128_t)h * m_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + (a >> 6), 1, 3);
   uint64_t mask = ((uint64_t)(k & 1) << (a & 63));
   a >>= 6;
   if (k <= 1) {
@@ -720,6 +789,7 @@ static bool query(uint64_t h) {
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len32_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 1, 3);
   for (unsigned i = 0;;) {
     h *= 0x9e3779b97f4a7c13ULL;
     for (int j = 0; j < 12; ++j) {
@@ -734,6 +804,7 @@ static void add(uint64_t h) {
 static bool query(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len32_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 0, 3);
   for (unsigned i = 0;;) {
     h *= 0x9e3779b97f4a7c13ULL;
     for (int j = 0; j < 12; ++j) {
@@ -754,6 +825,7 @@ static bool query(uint64_t h) {
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len32_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 1, 3);
   for (unsigned i = 0;;) {
     h *= 0x9e3779b97f4a7c13ULL;
     h = (h >> 10) | (h << 54);
@@ -769,6 +841,7 @@ static void add(uint64_t h) {
 static bool query(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len32_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 0, 3);
   for (unsigned i = 0;;) {
     h *= 0x9e3779b97f4a7c13ULL;
     h = (h >> 10) | (h << 54);
@@ -795,6 +868,7 @@ static void add(uint64_t hh) {
 
   uint128_t h2 = (uint128_t)h * len32_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 1, 3);
   for (unsigned i = 0;;) {
     h *= 0x9e3779b97f4a7c13ULL;
     for (int j = 0; j < 12; ++j) {
@@ -813,6 +887,7 @@ static bool query(uint64_t hh) {
 
   uint128_t h2 = (uint128_t)h * len32_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 0, 3);
   for (unsigned i = 0;;) {
     h *= 0x9e3779b97f4a7c13ULL;
     for (int j = 0; j < 12; ++j) {
@@ -833,6 +908,7 @@ static bool query(uint64_t hh) {
 static void add(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 1, 3);
   h = (uint64_t)h2;
   uint64_t mask = 0;
   for (unsigned i = 0; i < k; ++i) {
@@ -845,6 +921,7 @@ static void add(uint64_t h) {
 static bool query(uint64_t h) {
   uint128_t h2 = (uint128_t)h * len_odd;
   uint64_t a = h2 >> 64;
+  __builtin_prefetch(table + a, 0, 3);
   h = (uint64_t)h2;
   uint64_t mask = 0;
   for (unsigned i = 0; i < k; ++i) {
@@ -862,6 +939,7 @@ static void add(uint64_t hh) {
   uint32_t h = (uint32_t)hh; // take only 32 bits even though my test rig provides 64
   uint64_t h2 = (uint64_t)h * len32_odd;
   uint32_t a = h2 >> 32;
+  __builtin_prefetch(table + a, 1, 3);
   for (unsigned i = 0;;) {
     h *= 0x9e3779b9;
     for (int j = 0; j < 6; ++j) {
@@ -877,6 +955,7 @@ static bool query(uint64_t hh) {
   uint32_t h = (uint32_t)hh;
   uint64_t h2 = (uint64_t)h * len32_odd;
   uint32_t a = h2 >> 32;
+  __builtin_prefetch(table + a, 0, 3);
   for (unsigned i = 0;;) {
     h *= 0x9e3779b9;
     for (int j = 0; j < 6; ++j) {
