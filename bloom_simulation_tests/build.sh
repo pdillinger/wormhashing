@@ -40,7 +40,7 @@ for IMPL in $IMPLS; do
       echo "$CMD"
       $CMD &
     else
-      echo "NOTE: Skipping clang build; compiler not found"
+      echo "NOTE: Skipping intel build; compiler not found"
     fi
   done
   wait
