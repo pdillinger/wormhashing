@@ -492,6 +492,7 @@ static bool query(uint64_t h) {
 
 #ifdef IMPL_CACHE_MUL64_BLOCK_FROM32
 #define FP_RATE_CACHE
+#define FP_RATE_32BIT 1
 static void add(uint64_t hh) {
   uint32_t h32 = (uint32_t)hh;
   size_t a = fastrange32(len_odd, h32);
@@ -1201,7 +1202,7 @@ static double bffp(double m, double n, unsigned k) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 5) {
+  if (argc < 6) {
     std::cerr << "Not enough arguments" << std::endl;
     return 2;
   }
@@ -1222,12 +1223,26 @@ int main(int argc, char *argv[]) {
   k = std::atoi(argv[2]);
 #endif
 
-  max_n = (unsigned)(0.69314718 * m / k);
+  double b = std::atof(argv[3]);
+  if (b == 0.0) {
+    if (k == 0) {
+      std::cerr << "Must specify non-zero for either k or memory factor" << std::endl;
+      return 2;
+    }
+    max_n = (unsigned)(0.69314718 * m / k + 0.5);
+  } else {
+    max_n = (unsigned)(m / b + 0.5);
+#ifndef FIXED_K
+    if (k == 0) {
+      k = (unsigned)(0.69314718 * b + 0.5);
+    }
+#endif
+  }
 
-  int seed = std::atoi(argv[3]);
+  int seed = std::atoi(argv[4]);
   std::mt19937_64 r(seed);
 
-  int max_total_queries = std::atoi(argv[4]);
+  int max_total_queries = std::atoi(argv[5]);
   int total_fps = 0;
 
   int rem_queries_this_structure = 0;
