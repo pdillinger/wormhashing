@@ -6,4 +6,4 @@ FILE="$1"
 
 LST="$(cat "$FILE" | cut -d' ' -f1 | sort | uniq)"
 
-(for KEY in $LST; do LINES=`grep -c $KEY "$FILE"`; LINE=$(($LINES / 3 + 1)); echo "$LINE/$LINES" >&2; grep $KEY "$FILE" | sort -n | head -n $LINE | tail -1; done) | sort
+(for KEY in $LST; do LINES=`grep -c $KEY "$FILE"`; LINE=$(($LINES / 3 + 1)); echo "$LINE/$LINES" >&2; REPTIME=`grep $KEY "$FILE" | cut -d' ' -f 3 | sort -n | head -n $LINE | tail -1`; grep "$KEY time: $REPTIME" "$FILE"; done) | sort
