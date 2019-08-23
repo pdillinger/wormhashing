@@ -409,6 +409,110 @@ static bool query(uint64_t h) {
 }
 #endif
 
+#ifdef IMPL_CACHE_DBL_BLOCK
+#define FP_RATE_CACHE (round_up_to_pow2(k / 2) * 64)
+static void add(uint64_t h) {
+  // TODO: protect against k > 17 spilling into another cache line, possibly out of bounds
+  size_t a = fastrange64(len_odd, h);
+  __builtin_prefetch(table + a, 0, 3);
+  unsigned b = h;
+  if (k <= 1) {
+    table[a] |= ((uint64_t)1 << (b & 63));
+    return;
+  }
+  unsigned c = (h >> 5) | 1;
+  for (unsigned i = 0;; i++) {
+    uint64_t mask = ((uint64_t)1 << (b & 63))
+                  | ((uint64_t)1 << ((b + c) & 63));
+    if (i + 1 >= k / 2) {
+      if (k & 1) {
+        mask |= ((uint64_t)1 << ((b + 2 * c) & 63));
+      }
+      table[a ^ i] |= mask;
+      return;
+    }
+    table[a ^ i] |= mask;
+    b += 2 * c;
+  }
+}
+
+static bool query(uint64_t h) {
+  size_t a = fastrange64(len_odd, h);
+  __builtin_prefetch(table + a, 0, 3);
+  unsigned b = h;
+  if (k <= 1) {
+    return (table[a] & ((uint64_t)1 << (b & 63))) != 0;
+  }
+  unsigned c = (h >> 5) | 1;
+  for (unsigned i = 0;; i++) {
+    uint64_t mask = ((uint64_t)1 << (b & 63))
+                  | ((uint64_t)1 << ((b + c) & 63));
+    if (i + 1 >= k / 2) {
+      if (k & 1) {
+        mask |= ((uint64_t)1 << ((b + 2 * c) & 63));
+      }
+      return (table[a ^ i] & mask) == mask;
+    }
+    if ((table[a ^ i] & mask) != mask) {
+      return false;
+    }
+    b += 2 * c;
+  }
+}
+#endif
+
+#ifdef IMPL_CACHE_ENHDBL_BLOCK
+#define FP_RATE_CACHE (round_up_to_pow2(k / 2) * 64)
+static void add(uint64_t h) {
+  // TODO: protect against k > 17 spilling into another cache line, possibly out of bounds
+  size_t a = fastrange64(len_odd, h);
+  __builtin_prefetch(table + a, 0, 3);
+  unsigned b = h;
+  if (k <= 1) {
+    table[a] |= ((uint64_t)1 << (b & 63));
+    return;
+  }
+  unsigned c = (h >> 5) | 1;
+  for (unsigned i = 0;; i++) {
+    uint64_t mask = ((uint64_t)1 << (b & 63))
+                  | ((uint64_t)1 << ((b + c) & 63));
+    if (i + 1 >= k / 2) {
+      if (k & 1) {
+        mask |= ((uint64_t)1 << ((b + 2 * c + i) & 63));
+      }
+      table[a ^ i] |= mask;
+      return;
+    }
+    table[a ^ i] |= mask;
+    b += 2 * c + i;
+  }
+}
+
+static bool query(uint64_t h) {
+  size_t a = fastrange64(len_odd, h);
+  __builtin_prefetch(table + a, 0, 3);
+  unsigned b = h;
+  if (k <= 1) {
+    return (table[a] & ((uint64_t)1 << (b & 63))) != 0;
+  }
+  unsigned c = (h >> 5) | 1;
+  for (unsigned i = 0;; i++) {
+    uint64_t mask = ((uint64_t)1 << (b & 63))
+                  | ((uint64_t)1 << ((b + c) & 63));
+    if (i + 1 >= k / 2) {
+      if (k & 1) {
+        mask |= ((uint64_t)1 << ((b + 2 * c + i) & 63));
+      }
+      return (table[a ^ i] & mask) == mask;
+    }
+    if ((table[a ^ i] & mask) != mask) {
+      return false;
+    }
+    b += 2 * c + i;
+  }
+}
+#endif
+
 #ifdef IMPL_CACHE_MUL64_BLOCK
 #define FP_RATE_CACHE (round_up_to_pow2(k / 2) * 64)
 static void add(uint64_t h) {
