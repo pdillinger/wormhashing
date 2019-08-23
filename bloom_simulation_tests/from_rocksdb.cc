@@ -17,7 +17,7 @@ limitations under the License.
 // From RocksDB source code https://github.com/facebook/rocksdb/
 
 #ifdef IMPL_CACHE_ROCKSDB_DYNAMIC
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE 512
 #define FP_RATE_32BIT 1
 #define CACHE_LINE_SIZE 64
 static void add(uint64_t hh) {
@@ -70,7 +70,7 @@ static bool query(uint64_t hh) {
 #endif
 
 #ifdef IMPL_CACHE_ROCKSDB_DYNAMIC_FASTRANGE
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE 512
 #define FP_RATE_32BIT 1
 #define CACHE_LINE_SIZE 64
 static void add(uint64_t hh) {
@@ -125,7 +125,7 @@ static bool query(uint64_t hh) {
 #endif
 
 #ifdef IMPL_CACHE_ROCKSDB_DYNAMIC_FASTRANGE2
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE 512
 #define FP_RATE_32BIT 1
 #define CACHE_LINE_SIZE 64
 static void add(uint64_t hh) {

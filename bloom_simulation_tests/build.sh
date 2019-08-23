@@ -1,7 +1,7 @@
 #! /bin/bash
 
 GPP=g++
-which g++.par 2>/dev/null >/dev/null && GPP=g++.par
+which g++.par 2>/dev/null >/dev/null && GPP=g++.par && OLDGPP=g++
 which $GPP || GPP=""
 
 CLANGPP=clang++
@@ -27,6 +27,11 @@ for IMPL in $IMPLS; do
       $CMD &
     else
       echo "NOTE: Skipping g++ build; compiler not found"
+    fi
+    if [ "$OLDGPP" ]; then
+      CMD="$OLDGPP -D$IMPL $KOPT -std=c++11 -march=native -mtune=native -O9 -o foo_oldgcc_${IMPL}_${FIXED_K}.out foo.cc"
+      echo "$CMD"
+      $CMD &
     fi
     if [ "$CLANGPP" ]; then
       CMD="$CLANGPP -D$IMPL $KOPT -std=c++11 -march=native -mtune=native -Ofast -o foo_clang_${IMPL}_${FIXED_K}.out foo.cc"

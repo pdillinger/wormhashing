@@ -84,6 +84,13 @@ static inline size_t worm64_bits(size_t nbits, uint64_t &h) {
   return rv;
 }
 
+static inline unsigned round_up_to_pow2(unsigned x) {
+  unsigned rv = 1;
+  while (rv < x) {
+    rv <<= 1;
+  }
+  return rv;
+}
 
 #ifdef FIXED_K
 static const unsigned k = FIXED_K;
@@ -269,7 +276,7 @@ static inline uint64_t twang_mix64(uint64_t key) noexcept {
 */
 
 #ifdef IMPL_CACHE_WORM64
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE 512
 static void add(uint64_t h) {
   size_t a = worm64(m_odd, /*in/out*/h);
   table[a >> 6] |= ((uint64_t)1 << (a & 63));
@@ -300,7 +307,7 @@ static bool query(uint64_t h) {
 #endif
 
 #ifdef IMPL_CACHE_WORM64_ALT
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE 512
 static void add(uint64_t h) {
   size_t a = worm64(m_odd, /*in/out*/h);
   a <<= 3;
@@ -333,7 +340,7 @@ static bool query(uint64_t h) {
 #endif
 
 #ifdef IMPL_CACHE_WORM64_FROM32
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE 512
 #define FP_RATE_32BIT 1
 static void add(uint64_t hh) {
   uint32_t h32 = (uint32_t)hh;
@@ -372,9 +379,40 @@ static bool query(uint64_t hh) {
 }
 #endif
 
-#ifdef IMPL_CACHE_MUL64_BLOCK
-#define FP_RATE_CACHE
+#ifdef IMPL_CACHE_DBL
+#define FP_RATE_CACHE 512
 static void add(uint64_t h) {
+  size_t a = fastrange64(cache_len, h);
+  a <<= 9;
+  unsigned b = h & 511;
+  unsigned c = (h >> 8) | 1;
+  for (unsigned i = 0; i < k; ++i) {
+    size_t bit_addr = a + b;
+    table[bit_addr >> 6] |= ((uint64_t)1 << (bit_addr & 63));
+    b = (b + c) & 511;
+  }
+}
+
+static bool query(uint64_t h) {
+  size_t a = fastrange64(cache_len, h);
+  a <<= 9;
+  unsigned b = h & 511;
+  unsigned c = (h >> 8) | 1;
+  for (unsigned i = 0; i < k; ++i) {
+    size_t bit_addr = a + b;
+    if ((table[bit_addr >> 6] & ((uint64_t)1 << (bit_addr & 63))) == 0) {
+      return false;
+    }
+    b = (b + c) & 511;
+  }
+  return true;
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL64_BLOCK
+#define FP_RATE_CACHE (round_up_to_pow2(k / 2) * 64)
+static void add(uint64_t h) {
+  // TODO: protect against k > 17 spilling into another cache line, possibly out of bounds
   size_t a = fastrange64(len_odd, h);
   __builtin_prefetch(table + a, 1, 3);
   if (k <= 1) {
@@ -427,7 +465,7 @@ static bool query(uint64_t h) {
 #endif
 
 #ifdef IMPL_CACHE_MUL64_BLOCK_FROM32
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE (round_up_to_pow2(k / 2) * 64)
 #define FP_RATE_32BIT 1
 static void add(uint64_t hh) {
   uint32_t h32 = (uint32_t)hh;
@@ -486,7 +524,7 @@ static bool query(uint64_t hh) {
 #endif
 
 #ifdef IMPL_CACHE_WORM64_BLOCK
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE (round_up_to_pow2(k / 2) * 64)
 static void add(uint64_t h) {
   size_t a = worm64(len_odd, /*in/out*/h);
   __builtin_prefetch(table + a, 1, 3);
@@ -537,8 +575,49 @@ static bool query(uint64_t h) {
 }
 #endif
 
+#ifdef IMPL_CACHE_WORM64_BLOCK_ALT
+#define FP_RATE_CACHE (round_up_to_pow2((k + 1) / 2) * 64)
+static void add(uint64_t h) {
+  size_t a = worm64(len_odd, /*in/out*/h);
+  __builtin_prefetch(table + a, 1, 3);
+  for (unsigned i = 0; i < k / 2; ++i) {
+    size_t b = worm64_bits(6, /*in/out*/h);
+    size_t c = worm64(63, /*in/out*/h);
+    c += c >= b; // uniquify
+    uint64_t mask = ((uint64_t)1 << b)
+                  | ((uint64_t)1 << c);
+    table[a ^ i] |= mask;
+  }
+  if (k & 1) {
+    size_t b = worm64_bits(6, /*in/out*/h);
+    table[a ^ (k/2)] |= ((uint64_t)1 << b);
+  }
+}
+
+static bool query(uint64_t h) {
+  size_t a = worm64(len_odd, /*in/out*/h);
+  __builtin_prefetch(table + a, 0, 3);
+  for (unsigned i = 0; i < k / 2; ++i) {
+    size_t b = worm64_bits(6, /*in/out*/h);
+    size_t c = worm64(63, /*in/out*/h);
+    c += c >= b; // uniquify
+    uint64_t mask = ((uint64_t)1 << b)
+                  | ((uint64_t)1 << c);
+    if ((table[a ^ i] & mask) != mask) {
+      return false;
+    }
+  }
+  if (k & 1) {
+    size_t b = worm64_bits(6, /*in/out*/h);
+    return (table[a ^ (k/2)] & ((uint64_t)1 << b)) != 0;
+  }
+  return true;
+}
+#endif
+
 #ifdef IMPL_CACHE_WORM64_BLOCK_FROM32
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE (round_up_to_pow2(k / 2) * 64)
+#define FP_RATE_32BIT 1
 static void add(uint64_t hh) {
   uint32_t h32 = (uint32_t)hh;
   size_t a = worm32(len_odd, /*in/out*/h32);
@@ -565,7 +644,7 @@ static void add(uint64_t hh) {
   }
 }
 
-static bool query(uint64_t h) {
+static bool query(uint64_t hh) {
   uint32_t h32 = (uint32_t)hh;
   size_t a = worm32(len_odd, /*in/out*/h32);
   __builtin_prefetch(table + a, 1, 3);
@@ -594,7 +673,7 @@ static bool query(uint64_t h) {
 #endif
 
 #ifdef IMPL_CACHE_BLOCK64
-#define FP_RATE_CACHE
+#define FP_RATE_CACHE 64
 static void add(uint64_t h) {
   size_t a = worm64(len_odd, /*in/out*/h);
   __builtin_prefetch(table + a, 1, 3);
@@ -896,21 +975,22 @@ int main(int argc, char *argv[]) {
   double e_fp = bffp(m, max_n, k);
   double s_fp = (double)total_fps / max_total_queries;
   bool bad = s_fp > e_fp * 2.0;
-  double cache_n = (double)max_n / cache_len;
   std::cout << argv[0] << " time: " << std::chrono::duration_cast<std::chrono::microseconds>(time_end - time_begin).count() / 1000000.0
     << " sampled_fp_rate" << (bad ? "(!BAD!)" : "") << ": " << s_fp
-    << " expected_fp_rate: " << e_fp
+    << " expected_fp_rate: " << e_fp;
 #ifdef FP_RATE_CACHE
-    << " cache_line_rate: " << (bffp(512, cache_n + std::sqrt(cache_n), k)
-                                + bffp(512, cache_n - std::sqrt(cache_n), k)) / 2.0
+  double cache_n = (double)max_n / (m / FP_RATE_CACHE);
+  std::cout << " cache_line_rate(" << FP_RATE_CACHE << "): "
+    << (bffp(FP_RATE_CACHE, cache_n + std::sqrt(cache_n), k)
+      + bffp(FP_RATE_CACHE, cache_n - std::sqrt(cache_n), k)) / 2.0;
 #endif
 #ifdef FP_RATE_2IDX
-    << " 2idx_only_addl: " << ((double)max_n / m / m) // TODO: exp
+  std::cout << " 2idx_only_addl: " << ((double)max_n / m / m); // TODO: exp
 #endif
 #ifdef FP_RATE_32BIT
-    << " 32bit_only_addl: " << ((double)max_n * std::pow(2, -32)) // TODO: exp
+  std::cout << " 32bit_only_addl: " << ((double)max_n * std::pow(2, -32)); // TODO: exp
 #endif
-    << std::endl;
+  std::cout << std::endl;
   return 0;
 }
 
