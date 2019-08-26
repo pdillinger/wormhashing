@@ -125,12 +125,12 @@ int main(int argc, char *argv[]) {
 
           uint32_t upper = (cur * p64) >> 32;
           composite = composite * p + upper;
-          cur *= p;
+          cur = cur * p; // variant (also works): + upper;
 
           cur_inter *= interference[i];
           upper = (cur_inter * p64) >> 32;
           composite_inter = composite_inter * p + upper;
-          cur_inter *= p;
+          cur = cur * p; // variant (also works): + upper;
         }
 
         if (seen.at(composite)) {
