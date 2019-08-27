@@ -77,8 +77,11 @@ int main(int argc, char *argv[]) {
   std::mt19937_64 r(seed);
 
   std::vector<bool> seen;
+  std::vector<bool> seen_xtra;
   std::vector<bool> seen_inter;
+  std::vector<bool> seen_inter_xtra;
   std::set<uint64_t> seen_sparse;
+  std::set<uint64_t> seen_sparse_xtra;
   for (int testno = 0; ; testno++) {
     uint32_t start_val = r();
     uint32_t start_val_incr = r() | 1;
@@ -111,26 +114,43 @@ int main(int argc, char *argv[]) {
       }
       interference[0] = 1;
       seen.clear(); seen.resize(product);
+      seen_xtra.clear(); seen_xtra.resize(product);
       seen_inter.clear(); seen_inter.resize(product);
+      seen_inter_xtra.clear(); seen_inter_xtra.resize(product);
       int collisions = 0;
+      int collisions_xtra = 0;
       int collisions_inter = 0;
+      int collisions_inter_xtra = 0;
       for (uint32_t iterations = 0; iterations < max_iterations; iterations++) {
         uint32_t cur = mix32(start_val);
         uint64_t composite = 0;
+        uint32_t cur_xtra = cur;
+        uint64_t composite_xtra = 0;
         uint32_t cur_inter = cur;
         uint64_t composite_inter = 0;
+        uint32_t cur_inter_xtra = cur;
+        uint64_t composite_inter_xtra = 0;
         for (unsigned i = 0; i < configuration.size(); i++) {
           uint32_t p = configuration[i];
           uint64_t p64 = p;
 
           uint32_t upper = (cur * p64) >> 32;
           composite = composite * p + upper;
-          cur = cur * p; // variant (also works): + upper;
+          cur = cur * p;
+
+          upper = (cur_xtra * p64) >> 32;
+          composite_xtra = composite_xtra * p + upper;
+          cur_xtra = cur_xtra * p + upper;
 
           cur_inter *= interference[i];
           upper = (cur_inter * p64) >> 32;
           composite_inter = composite_inter * p + upper;
-          cur = cur * p; // variant (also works): + upper;
+          cur_inter = cur_inter * p;
+
+          cur_inter_xtra *= interference[i];
+          upper = (cur_inter_xtra * p64) >> 32;
+          composite_inter_xtra = composite_inter_xtra * p + upper;
+          cur_inter_xtra = cur_inter_xtra * p + upper;
         }
 
         if (seen.at(composite)) {
@@ -138,10 +158,20 @@ int main(int argc, char *argv[]) {
         } else {
           seen[composite] = true;
         }
+        if (seen_xtra.at(composite_xtra)) {
+          collisions_xtra++;
+        } else {
+          seen_xtra[composite_xtra] = true;
+        }
         if (seen_inter.at(composite_inter)) {
           collisions_inter++;
         } else {
           seen_inter[composite_inter] = true;
+        }
+        if (seen_inter_xtra.at(composite_inter_xtra)) {
+          collisions_inter_xtra++;
+        } else {
+          seen_inter_xtra[composite_inter_xtra] = true;
         }
 
         start_val += start_val_incr; // overflow ok
@@ -158,7 +188,10 @@ int main(int argc, char *argv[]) {
         }
       }
       std::cout << "(" << product / 4294967296.0 << ") -> " << collisions << " coll, "
-                << collisions_inter << " inter" << std::endl;
+                << collisions_xtra << " xtra, "
+                << collisions_inter << " inter, "
+                << collisions_inter_xtra << " inter_xtra"
+                << std::endl;
 
       double position = 0.0;
       std::cout << "          ";
@@ -190,8 +223,10 @@ int main(int argc, char *argv[]) {
       }
 
       seen_sparse.clear();
+      seen_sparse_xtra.clear();
       std::vector<uint32_t> vals(power);
       int collisions = 0;
+      int collisions_xtra = 0;
       for (uint32_t iterations = 0; iterations < max_iterations; iterations++) {
         uint32_t cur = mix32(start_val);
         for (unsigned i = 0; i < power; i++) {
@@ -212,13 +247,35 @@ int main(int argc, char *argv[]) {
           seen_sparse.insert(composite);
         }
 
+	// xtra
+        cur = mix32(start_val);
+        for (unsigned i = 0; i < power; i++) {
+          uint32_t upper = ((uint64_t)cur * multiplicand) >> 32;
+          vals[i] = upper;
+          cur = cur * multiplicand + upper;
+        }
+
+        std::sort(vals.begin(), vals.end());
+
+        composite = 0;
+        for (unsigned i = 0; i < power; i++) {
+          composite = composite * multiplicand + vals[i];
+        }
+
+        if (seen_sparse_xtra.count(composite) > 0) {
+          collisions_xtra++;
+        } else {
+          seen_sparse_xtra.insert(composite);
+        }
+
         start_val += start_val_incr; // overflow ok
       }
 
       std::cout << "Same#" << testno << ": "
                 << multiplicand << "**" << power << " "
                 << "(" << log2(product) << " bits vs. " << log2(rep) << ")"
-                << " -> " << collisions << " coll" << std::endl;
+                << " -> " << collisions << " coll, "
+                << collisions_xtra << " xtra" << std::endl;
     }
   }
   return 0;
@@ -228,31 +285,5 @@ int main(int argc, char *argv[]) {
 $ ./build.sh
 ...
 $ ./entropy.out $RANDOM
-Various#0: (1*)656568545*(21292889*)7 (1.07008) -> 0 coll, 0 inter
-          [0,29.2904][53.6342,56.4416]
-Same#0: 4681**3 (36.5778 bits vs. 34.585) -> 4 coll
-Various#1: (1*)135*(263*)9683629*(183703991*)5 (1.52189) -> 0 coll, 386915 inter
-          [0,7.07682][15.1157,38.3229][65.7757,68.0976]
-Same#1: 69297**2 (32.161 bits vs. 33) -> 108 coll
-Various#2: (1*)246025*(495009*)71*(2593535*)247 (1.00456) -> 0 coll, 7588 inter
-          [0,17.9084][36.8255,42.9753][64.2818,72.2301]
-Same#2: 3597**3 (35.4377 bits vs. 34.585) -> 96 coll
-Various#3: (1*)14015*(10179*)14487*(631864825*)23 (1.08728) -> 0 coll, 0 inter
-          [0,13.7747][27.088,40.9105][70.1455,74.6691]
-Same#3: 1135**4 (40.5939 bits vs. 36.585) -> 34 coll
-Various#4: (1*)1932639*(8941*)2223 (1.0003) -> 0 coll, 0 inter
-          [0,20.8821][34.0084,45.1267]
-Same#4: 353**4 (33.8541 bits vs. 36.585) -> 1027 coll
-Various#5: (1*)9*(95828929*)477218589 (1) -> 0 coll, 0 inter
-          [0,3.16993][29.6839,58.514]
-Same#5: 5**14 (32.507 bits vs. 62.2523) -> 997223 coll
-Various#6: (1*)3435*(140758193*)1250355 (1) -> 0 coll, 1008 inter
-          [0,11.7461][38.8147,59.0686]
-Same#6: 143**5 (35.7994 bits vs. 38.9069) -> 869 coll
-Various#7: (1*)88241483*(11711*)49 (1.00672) -> 0 coll, 0 inter
-          [0,26.395][39.9105,45.5252]
-Same#7: 15737**3 (41.8256 bits vs. 34.585) -> 0 coll
-Various#8: (1*)2069*(3*)2075867 (1) -> 0 coll, 0 inter
-          [0,11.0147][12.5997,33.585]
 ...
 */
