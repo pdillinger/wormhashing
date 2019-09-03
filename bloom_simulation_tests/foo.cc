@@ -421,6 +421,38 @@ static bool query(uint64_t hh) {
 }
 #endif
 
+#ifdef IMPL_LOCAL_WORM64
+static void add(uint64_t h) {
+  size_t a = worm64(m_odd, /*in/out*/h);
+  table[a >> 6] |= ((uint64_t)1 << (a & 63));
+  if (k == 1) return;
+  for (unsigned i = 2;; ++i) {
+    size_t b = worm64(233, /*in/out*/h);
+    a += b + 1;
+    if (a > m_odd) { a -= m_odd; }
+    table[a >> 6] |= ((uint64_t)1 << (a & 63));
+    if (i >= k) break;
+  }
+}
+
+static bool query(uint64_t h) {
+  size_t a = worm64(m_odd, /*in/out*/h);
+  if ((table[a >> 6] & ((uint64_t)1 << (a & 63))) == 0) {
+    return false;
+  }
+  if (k == 1) return true;
+  for (unsigned i = 2;; ++i) {
+    size_t b = worm64(233, /*in/out*/h);
+    a += b + 1;
+    if (a > m_odd) { a -= m_odd; }
+    if ((table[a >> 6] & ((uint64_t)1 << (a & 63))) == 0) {
+      return false;
+    }
+    if (i >= k) return true;
+  }
+}
+#endif
+
 #ifdef IMPL_CACHE_DBL
 #define FP_RATE_CACHE 512
 static void add(uint64_t h) {
@@ -551,6 +583,45 @@ static bool query(uint64_t h) {
       return false;
     }
     b += 2 * c + i;
+  }
+}
+#endif
+
+#ifdef IMPL_CACHE_MUL64
+#define FP_RATE_CACHE 512
+static void add(uint64_t h) {
+  size_t a = fastrange64(len_odd, h);
+  __builtin_prefetch(table + a, 1, 3);
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 7; ++j) {
+      table[a] |= ((uint64_t)1 << (h & 63));
+      ++i;
+      if (i >= k) {
+        return;
+      }
+      a ^= ((h >> 6) & 7);
+      h = (h >> 9) | (h << 55);
+    }
+  }
+}
+
+static bool query(uint64_t h) {
+  size_t a = fastrange64(len_odd, h);
+  __builtin_prefetch(table + a, 1, 3);
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 7; ++j) {
+      if ((table[a] & ((uint64_t)1 << (h & 63))) == 0) {
+        return false;
+      }
+      ++i;
+      if (i >= k) {
+        return true;
+      }
+      a ^= ((h >> 6) & 7);
+      h = (h >> 9) | (h << 55);
+    }
   }
 }
 #endif

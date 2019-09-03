@@ -16,6 +16,45 @@ limitations under the License.
 
 // From RocksDB source code https://github.com/facebook/rocksdb/
 
+#ifdef IMPL_ROCKSDB_DYNAMIC
+#define FP_RATE_32BIT 1
+#define CACHE_LINE_SIZE 64
+static void add(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  const uint32_t kNumProbes = k;
+  const uint32_t kTotalBits = m_odd;
+  uint8_t * const data_ = reinterpret_cast<uint8_t *>(table);
+
+  //*** BEGIN Copy-paste (with minor clean up) ***//
+  const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
+  for (uint32_t i = 0; i < kNumProbes; ++i) {
+    const uint32_t bitpos = h % kTotalBits;
+    data_[bitpos / 8] |= (1 << (bitpos % 8));
+    h += delta;
+  }
+  //*** END Copy-paste (with minor clean up) ***//
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  const uint32_t kNumProbes = k;
+  const uint32_t kTotalBits = m_odd;
+  uint8_t * const data_ = reinterpret_cast<uint8_t *>(table);
+
+  //*** BEGIN Copy-paste (with minor clean up) ***//
+  const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
+  for (uint32_t i = 0; i < kNumProbes; ++i) {
+    const uint32_t bitpos = h % kTotalBits;
+    if ((data_[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
+      return false;
+    }
+    h += delta;
+  }
+  return true;
+  //*** END Copy-paste (with minor clean up) ***//
+}
+#endif
+
 #ifdef IMPL_CACHE_ROCKSDB_DYNAMIC
 #define FP_RATE_CACHE 512
 #define FP_RATE_32BIT 1
