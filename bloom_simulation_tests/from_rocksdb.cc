@@ -217,3 +217,53 @@ static bool query(uint64_t hh) {
   //*** END Copy-paste (with minor clean up) ***//
 }
 #endif
+
+#ifdef IMPL_CACHE_ROCKSDB_FULL
+#define FP_RATE_CACHE 512
+#define FP_RATE_32BIT 1
+#define CACHE_LINE_SIZE 64
+static void add(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  const uint32_t num_probes_ = k;
+  const uint32_t num_lines = cache_len_odd;
+  uint8_t * const data = reinterpret_cast<uint8_t *>(table);
+
+  //*** BEGIN Copy-paste (with minor clean up) ***//
+  const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
+  uint32_t b = (h % num_lines) * (CACHE_LINE_SIZE * 8);
+
+  for (uint32_t i = 0; i < num_probes_; ++i) {
+    // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
+    // to a simple operation by compiler.
+    const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
+    data[bitpos / 8] |= (1 << (bitpos % 8));
+
+    h += delta;
+  }
+  //*** END Copy-paste (with minor clean up) ***//
+}
+
+static bool query(uint64_t hh) {
+  uint32_t h = (uint32_t)hh;
+  const uint32_t num_probes_ = k;
+  const uint32_t num_lines = cache_len;
+  uint8_t * const data = reinterpret_cast<uint8_t *>(table);
+
+  //*** This isn't an exact copy, but should be similar speed ***//
+  const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
+  uint32_t b = (h % num_lines) * (CACHE_LINE_SIZE * 8);
+
+  for (uint32_t i = 0; i < num_probes_; ++i) {
+    // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
+    // to a simple operation by compiler.
+    const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
+    if ((data[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
+      return false;
+    }
+
+    h += delta;
+  }
+
+  return true;
+}
+#endif

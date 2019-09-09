@@ -453,6 +453,46 @@ static bool query(uint64_t h) {
 }
 #endif
 
+#ifdef IMPL_LOCAL_MUL64
+static void add(uint64_t h) {
+  size_t a = fastrange64(len_odd, h);
+  __builtin_prefetch(table + a, 1, 3);
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 7; ++j) {
+      table[a] |= ((uint64_t)1 << (h & 63));
+      ++i;
+      if (i >= k) {
+        return;
+      }
+      a += ((h >> 6) & 7);
+      if (a >= len_odd) { a -= len_odd; }
+      h = (h >> 9) | (h << 55);
+    }
+  }
+}
+
+static bool query(uint64_t h) {
+  size_t a = fastrange64(len_odd, h);
+  __builtin_prefetch(table + a, 1, 3);
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 7; ++j) {
+      if ((table[a] & ((uint64_t)1 << (h & 63))) == 0) {
+        return false;
+      }
+      ++i;
+      if (i >= k) {
+        return true;
+      }
+      a += ((h >> 6) & 7);
+      if (a >= len_odd) { a -= len_odd; }
+      h = (h >> 9) | (h << 55);
+    }
+  }
+}
+#endif
+
 #ifdef IMPL_CACHE_DBL
 #define FP_RATE_CACHE 512
 static void add(uint64_t h) {
