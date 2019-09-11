@@ -1249,10 +1249,6 @@ static bool query(uint64_t v) {
 #include <immintrin.h>
 
 __m256i k_selector;
-const __m256i list_0_to_7 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
-const __m256i multipliers =
-    _mm256_setr_epi32(1 << 0, 1 << 5, 1 << 10, 1 << 15, 1 << 20,
-                      1628273 << 0, 1628273 << 5, 1628273 << 10);
 
 #define SETUP
 static void setup() {
@@ -1260,25 +1256,34 @@ static void setup() {
                                  k >= 5, k >= 6, k >= 7, k >= 8);
 }
 
-static inline __m256i simd_mask(uint32_t h, int k) {
+static inline __m256i simd_mask(uint32_t h) {
   // Make eight copies of h
   __m256i v = _mm256_set1_epi32(h);
 
-  // Start the process of selecting k out of 8 sectors to actually use, with
-  // basic re-arrangement of values 0 to 7 using bottom bits of
+  // Start the process of selecting exactly k out of 8 sectors to actually use,
+  // with basic re-arrangement of values 0 to 7 using bottom bits of
   // hash. (Bits above bottom three will be ignored.)
+  const __m256i list_0_to_7 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
   __m256i s = _mm256_add_epi32(list_0_to_7, v);
 
-  // Re-mix each hash with various (odd) multipliers
+  // Use various multipliers to set up for extracting five 5-bit pieces of the
+  // input hash (enough not to conflict with above use of 3 bits) plus
+  // three 5-bit pieces of a modest remix of the input hash. (If writing
+  // non-SIMD code to be schema compatible with this code, this approach
+  // vs. independent remixes should be slightly faster for that non-SIMD
+  // code.)
+  const __m256i multipliers =
+      _mm256_setr_epi32(1 << 0, 1 << 5, 1 << 10, 1 << 15, 1 << 20,
+                        1628273 << 0, 1628273 << 5, 1628273 << 10);
   v = _mm256_mullo_epi32(v, multipliers);
 
-  // Use those 0 to 7 values to permute the k selector 1s.
+  // Use those 0 to 7 values to permute the k selector 1s and 8-k selector 0s.
   s = _mm256_permutevar8x32_epi32(k_selector, s);
 
   // Shift away all but top 5 re-mixed hash bits
   v = _mm256_srli_epi32(v, 27);
 
-  // Generate mask by left-shifting selected 1s by those hash quantities
+  // Generate mask by left-shifting the k selected 1s by those hash quantities
   return _mm256_sllv_epi32(s, v);
 }
 
@@ -1291,7 +1296,7 @@ static void add(uint64_t v) {
   // Remix with golden ratio after fastrange
   h *= 0x9e3779b9;
   // Like *ptr |= mask;
-  _mm256_store_si256(ptr, _mm256_or_si256(val, simd_mask(h, k)));
+  _mm256_store_si256(ptr, _mm256_or_si256(val, simd_mask(h)));
 }
 
 static bool query(uint64_t v) {
@@ -1301,7 +1306,7 @@ static bool query(uint64_t v) {
   // Remix with golden ratio after fastrange
   h *= 0x9e3779b9;
   // Like ((~val) & mask) == 0)
-  return _mm256_testc_si256(val, simd_mask(h, k));
+  return _mm256_testc_si256(val, simd_mask(h));
 }
 #endif
 
