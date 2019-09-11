@@ -1247,36 +1247,6 @@ static bool query(uint64_t v) {
 #define FP_RATE_CACHE 256
 #define FP_RATE_32BIT 1
 #include <immintrin.h>
-/* Previous, slightly slower attempt:
-static inline __m256i simd_mask(uint32_t h, int k) {
-  // Start the process of selecting k out of 8 to actually use
-  __m256i s = _mm256_setr_epi32(0, 1, 5, 2, 4, 6, 7, 3);
-
-  // Make eight copies of h
-  __m256i v = _mm256_set1_epi32(h);
-
-  // Simple re-arranging of values 0 to 7 using bottom bits of hash
-  s = _mm256_xor_si256(s, _mm256_set1_epi32((h >> 21) & 7));
-
-  // Re-mix each hash with various (odd) multipliers
-  v = _mm256_mullo_epi32(v, _mm256_setr_epi32(-1545148375, 939189041,
-                                              1323509755, -1969823245,
-                                              574551977, -1487628273,
-                                              -1264161019, -1720001801));
-
-  // Add k to each value. (Those now >= 8 will be selected.)
-  s = _mm256_add_epi32(s, _mm256_set1_epi32(k));
-
-  // Shift away all but top 5 bits
-  v = _mm256_srli_epi32(v, 27);
-
-  // Shift away bottom three bits to get 1 where value was >= 8, 0 otherwise.
-  s = _mm256_srli_epi32(s, 3);
-
-  // Generate mask by left-shifting selected 1s by those quantities
-  return _mm256_sllv_epi32(s, v);
-}
-*/
 
 __m256i k_selector;
 const __m256i list_0_to_7 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
