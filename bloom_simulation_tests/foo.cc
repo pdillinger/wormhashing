@@ -1279,10 +1279,10 @@ static inline __m256i simd_mask(uint32_t h, int k) {
 */
 
 __m256i k_selector;
-const __m256i jumbled_0_to_7 = _mm256_setr_epi32(0, 1, 5, 2, 4, 6, 7, 3);
+const __m256i list_0_to_7 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
 const __m256i multipliers =
-    _mm256_setr_epi32(-1545148375, 939189041, 1323509755, -1969823245,
-                      574551977, -1487628273, -1264161019, -1720001801);
+    _mm256_setr_epi32(1 << 0, 1 << 5, 1 << 10, 1 << 15, 1 << 20,
+                      1628273 << 0, 1628273 << 5, 1628273 << 10);
 
 #define SETUP
 static void setup() {
@@ -1295,9 +1295,9 @@ static inline __m256i simd_mask(uint32_t h, int k) {
   __m256i v = _mm256_set1_epi32(h);
 
   // Start the process of selecting k out of 8 sectors to actually use, with
-  // simple re-arrangement of values 0 to 7 using bottom bits of hash.
-  // (Bits above bottom three will be ignored.)
-  __m256i s = _mm256_add_epi32(jumbled_0_to_7, v);
+  // basic re-arrangement of values 0 to 7 using bottom bits of
+  // hash. (Bits above bottom three will be ignored.)
+  __m256i s = _mm256_add_epi32(list_0_to_7, v);
 
   // Re-mix each hash with various (odd) multipliers
   v = _mm256_mullo_epi32(v, multipliers);
