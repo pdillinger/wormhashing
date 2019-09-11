@@ -122,6 +122,7 @@ static unsigned len;
 static unsigned len_mask;
 static unsigned cache_len;
 static unsigned cache_len_mask;
+static unsigned cache256_len;
 static unsigned m_mask;
 static unsigned bits_len = 0;
 static unsigned bits_64_minus_len = 0;
@@ -1242,6 +1243,138 @@ static bool query(uint64_t v) {
 }
 #endif
 
+#ifdef IMPL_CACHE_SIMD_FASTRANGE32
+#define FP_RATE_CACHE 256
+#define FP_RATE_32BIT 1
+#include <immintrin.h>
+/* Previous, slightly slower attempt:
+static inline __m256i simd_mask(uint32_t h, int k) {
+  // Start the process of selecting k out of 8 to actually use
+  __m256i s = _mm256_setr_epi32(0, 1, 5, 2, 4, 6, 7, 3);
+
+  // Make eight copies of h
+  __m256i v = _mm256_set1_epi32(h);
+
+  // Simple re-arranging of values 0 to 7 using bottom bits of hash
+  s = _mm256_xor_si256(s, _mm256_set1_epi32((h >> 21) & 7));
+
+  // Re-mix each hash with various (odd) multipliers
+  v = _mm256_mullo_epi32(v, _mm256_setr_epi32(-1545148375, 939189041,
+                                              1323509755, -1969823245,
+                                              574551977, -1487628273,
+                                              -1264161019, -1720001801));
+
+  // Add k to each value. (Those now >= 8 will be selected.)
+  s = _mm256_add_epi32(s, _mm256_set1_epi32(k));
+
+  // Shift away all but top 5 bits
+  v = _mm256_srli_epi32(v, 27);
+
+  // Shift away bottom three bits to get 1 where value was >= 8, 0 otherwise.
+  s = _mm256_srli_epi32(s, 3);
+
+  // Generate mask by left-shifting selected 1s by those quantities
+  return _mm256_sllv_epi32(s, v);
+}
+*/
+
+__m256i k_selector;
+const __m256i jumbled_0_to_7 = _mm256_setr_epi32(0, 1, 5, 2, 4, 6, 7, 3);
+const __m256i multipliers =
+    _mm256_setr_epi32(-1545148375, 939189041, 1323509755, -1969823245,
+                      574551977, -1487628273, -1264161019, -1720001801);
+
+#define SETUP
+static void setup() {
+  k_selector = _mm256_setr_epi32(k >= 1, k >= 2, k >= 3, k >= 4,
+                                 k >= 5, k >= 6, k >= 7, k >= 8);
+}
+
+static inline __m256i simd_mask(uint32_t h, int k) {
+  // Make eight copies of h
+  __m256i v = _mm256_set1_epi32(h);
+
+  // Start the process of selecting k out of 8 sectors to actually use, with
+  // simple re-arrangement of values 0 to 7 using bottom bits of hash.
+  // (Bits above bottom three will be ignored.)
+  __m256i s = _mm256_add_epi32(jumbled_0_to_7, v);
+
+  // Re-mix each hash with various (odd) multipliers
+  v = _mm256_mullo_epi32(v, multipliers);
+
+  // Use those 0 to 7 values to permute the k selector 1s.
+  s = _mm256_permutevar8x32_epi32(k_selector, s);
+
+  // Shift away all but top 5 re-mixed hash bits
+  v = _mm256_srli_epi32(v, 27);
+
+  // Generate mask by left-shifting selected 1s by those hash quantities
+  return _mm256_sllv_epi32(s, v);
+}
+
+static void add(uint64_t v) {
+  uint32_t h = (uint32_t)v;
+  uint32_t a = fastrange32(cache256_len, h);
+  // Try to start the memory load
+  __m256i *ptr = &reinterpret_cast<__m256i*>(table)[a];
+  __m256i val = *ptr;
+  // Remix with golden ratio after fastrange
+  h *= 0x9e3779b9;
+  // Like *ptr |= mask;
+  _mm256_store_si256(ptr, _mm256_or_si256(val, simd_mask(h, k)));
+}
+
+static bool query(uint64_t v) {
+  uint32_t h = (uint32_t)v;
+  uint32_t a = fastrange32(cache256_len, h);
+  __m256i val = reinterpret_cast<__m256i*>(table)[a];
+  // Remix with golden ratio after fastrange
+  h *= 0x9e3779b9;
+  // Like ((~val) & mask) == 0)
+  return _mm256_testc_si256(val, simd_mask(h, k));
+}
+#endif
+
+#ifdef IMPL_CACHE_SIMD_FASTRANGE32_K8
+#define FP_RATE_CACHE 256
+#define FP_RATE_32BIT 1
+// Always k=8
+#include <immintrin.h>
+
+static inline __m256i simd_mask(uint32_t h) {
+  // Make eight copies of h
+  __m256i v = _mm256_set1_epi32(h);
+  // Re-mix each with various (odd) multipliers
+  v = _mm256_mullo_epi32(v, _mm256_setr_epi32(-1545148375, 939189041,
+                                              1323509755, -1969823245,
+                                              574551977, -1487628273,
+                                              -1264161019, -1720001801));
+  // Shift away all but top 5 bits
+  v = _mm256_srli_epi32(v, 27);
+  // Generate mask by left-shifting 1s by those quantities
+  return _mm256_sllv_epi32(_mm256_set1_epi32(1), v);
+}
+
+static void add(uint64_t v) {
+  uint32_t h = (uint32_t)v;
+  uint32_t a = fastrange32(cache256_len, h);
+  __m256i *ptr = &reinterpret_cast<__m256i*>(table)[a];
+  __m256i val = *ptr;
+  h = (h << 21) | (h >> 11);
+  // equivalent to *ptr |= mask;
+  _mm256_store_si256(ptr, _mm256_or_si256(val, simd_mask(h)));
+}
+
+static bool query(uint64_t v) {
+  uint32_t h = (uint32_t)v;
+  uint32_t a = fastrange32(cache256_len, h);
+  __m256i val = reinterpret_cast<__m256i*>(table)[a];
+  h = (h << 21) | (h >> 11);
+  // equivalent to ((~val) & mask) == 0)
+  return _mm256_testc_si256(val, simd_mask(h));
+}
+#endif
+
 static double bffp(double m, double n, unsigned k) {
   double p = 1.0 - std::exp(- n * k / m);
   return std::pow(p, k);
@@ -1258,7 +1391,9 @@ int main(int argc, char *argv[]) {
   len_mask = len - 1;
   cache_len = (((m - 1) | 511) + 1) / 512;
   cache_len_mask = cache_len - 1;
-  table = new int64_t[len];
+  cache256_len = (((m - 1) | 255) + 1) / 256;
+  table = new int64_t[len + 3];
+  while ((uintptr_t)table & 31) { ++table; } // align on 256 bit boundary
 
 #ifdef FIXED_K
   if (k != std::atoi(argv[2])) {
@@ -1325,6 +1460,9 @@ int main(int argc, char *argv[]) {
       break;
     }
   }
+#ifdef SETUP
+  setup();
+#endif
   std::chrono::steady_clock::time_point time_begin = std::chrono::steady_clock::now();
 
   // actual run
