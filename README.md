@@ -17,9 +17,9 @@ Actual code (64-bit word size, Bloom filter add using k values over range m_odd,
 
     uint64_t h = XXH64(p, len, /*seed*/0);
     for (unsigned i = 0; i < k; ++i) {
-      __uint128_t wide_product = (__uint128_t)h * m_odd;
+      __uint128_t wide_product = __uint128_t{h} * m_odd;
       uint64_t bit_index = (uint64_t)(wide_product >> 64);
-      table[bit_index >> 6] |= ((uint64_t)1 << (bit_index & 63));
+      table[bit_index >> 6] |= (uint64_t{1} << (bit_index & 63));
       h = (uint64_t)wide_product;
     }
 
@@ -48,6 +48,12 @@ Worm hashing should be considered a new standard construction for Bloom filters,
 double hashing variants. As yet, we have not detected (using [bloom_simulation_tests](bloom_simulation_tests/)) any
 significant, repeatable deviation from what you would get with independent hash functions by using 64-bit worm hashing. (The
 loss from double hashing and variants is quite detectable for some configurations.)
+
+A key usability advantage of worm hashing over e.g. double hashing is *never wasting hash entropy* when it could have been
+used. It is relatively easy to prove that any contiguous sequence of worm-generated values have maximal entropy from the
+original hash: the maximum of either the combined sizes of the generated values or the size of the original hash. The top
+mistake in efficient hashing is leaving quality hash information unused (or severely under-utilized); worm hashing is
+a simple and clear recipe for avoiding that top mistake.
 
 Aside from getting wide multiplication results, the code is very simple. In fact, being able to pass around a 64-bit hash as a
 complete input descriptor can simplify some code.
